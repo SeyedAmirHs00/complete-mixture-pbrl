@@ -40,6 +40,8 @@ device: cuda
 # logger
 log_frequency: 1000
 log_save_tb: false
+eval_log_name: eval_RIME_mistake_${teacher_eps_mistake}_seed_${seed}
+train_log_name: train_RIME_mistake_${teacher_eps_mistake}_seed_${seed}
 
 # video recorder
 save_video: false

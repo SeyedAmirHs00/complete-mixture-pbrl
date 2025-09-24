@@ -12,17 +12,19 @@ from config.RIME import RIMEConfig
 from utils.logger_RIME import Logger
 from utils.replay_buffer import ReplayBuffer
 from reward_model.reward_model_RIME_mixture import RIMERewardModel, set_device_RIME
-
+import hydra
 
 class Workspace:
     def __init__(self, cfg):
-        self.work_dir = os.path.join(os.getcwd(), 'exp_RIME', cfg.env)
+        self.work_dir = os.getcwd()
+        print(f'workspace: {self.work_dir}')
+        
         self.cfg = cfg
         self.logger = Logger(
             self.work_dir,
             save_tb=cfg.log_save_tb,
             log_frequency=cfg.log_frequency,
-            agent=cfg.agent_name,
+            agent=cfg.agent.name,
             train_log_name=cfg.train_log_name,
             eval_log_name=cfg.eval_log_name,
         )
@@ -363,42 +365,12 @@ class Workspace:
         self.agent.save(save_dir, self.step)
         self.reward_model.save(save_dir, self.step)
 
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--least_reward_update', type=int)
-    parser.add_argument('--threshold_variance', type=str)
-    parser.add_argument('--threshold_alpha', type=float)
-    parser.add_argument('--threshold_beta_init', type=float)
-    parser.add_argument('--threshold_beta_min', type=float)
-    
-    parser.add_argument('--seed', type=int)
-    parser.add_argument('--device', type=str)
-    parser.add_argument('--env', type=str)
-    parser.add_argument('--eps_mistake', type=float)
-    parser.add_argument('--eps_equal', type=float)
-    parser.add_argument('--eps_skip', type=float)
-    parser.add_argument('--teacher_gamma', type=float)
-    parser.add_argument('--actor_lr', type=float)
-    parser.add_argument('--critic_lr', type=float)
-    parser.add_argument('--unsup_steps', type=int)
-    parser.add_argument('--steps', type=int)
-    parser.add_argument('--num_interact', type=int)
-    parser.add_argument('--max_feedback', type=int)
-    parser.add_argument('--reward_batch', type=int)
-    parser.add_argument('--reward_update', type=int)
-    parser.add_argument('-b', '--batch_size', type=int)
-    parser.add_argument('--critic_hidden_dim', type=int)
-    parser.add_argument('--actor_hidden_dim', type=int)
-    parser.add_argument('--critic_hidden_depth', type=int)
-    parser.add_argument('--actor_hidden_depth', type=int)
-    parser.add_argument('--feed_type', type=int)
-    parser.add_argument('--ensemble_size', type=int)
-    args = parser.parse_args()
-    cfg = RIMEConfig(args)
-    set_device_RIME(cfg.device)
+@hydra.main(config_path='config', config_name='train_RIME', strict=True)
+def main(cfg):
+    print(cfg)
     workspace = Workspace(cfg)
     workspace.run()
+    
 
 
 if __name__ == '__main__':
