@@ -1,0 +1,3 @@
+for seed in 34512 45123 51234 67890 78906 89067 90678 6789; do
+    python train_RIME.py --env="metaworld_sweep-into-v2" --seed=$seed --actor_lr=0.0003 --critic_lr=0.0003 --unsup_steps=9000 --steps=1000000 --num_interact=5000 --max_feedback="20000" --reward_batch=100 --reward_update=10 --feed_type=$1 --device="cuda:0" --eps_mistake="0.3" --least_reward_update=5 --threshold_variance='kl' --threshold_alpha=0.5 --threshold_beta_init=3.0 --threshold_beta_min=1.0 --eps_skip="0.0" --eps_equal="0.0" --teacher_gamma="1.0" --batch_size=512 --critic_hidden_dim=256 --critic_hidden_depth=3 --actor_hidden_dim=256 --actor_hidden_depth=3
+done
