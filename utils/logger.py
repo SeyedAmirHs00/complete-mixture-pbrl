@@ -1,5 +1,6 @@
+# logger_union.py
+# Combines features from logger.py and logger_RIME.py
 
-from torch.utils.tensorboard import SummaryWriter
 from collections import defaultdict
 import json
 import os
@@ -8,7 +9,15 @@ import shutil
 import torch
 import numpy as np
 from termcolor import colored
+from time import time
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    HAS_TENSORBOARD = True
+except ImportError:
+    HAS_TENSORBOARD = False
+
+# Common formats
 COMMON_TRAIN_FORMAT = [
     ('episode', 'E', 'int'),
     ('step', 'S', 'int'),
@@ -30,7 +39,6 @@ COMMON_EVAL_FORMAT = [
 ]
 
 REWARD_METRIC_FORMAT = [
-    # Only common fields, dynamic fields (like alpha_1, alpha_2, ...) will be handled automatically
     ('step', 'S', 'int'),
     ('reward', 'RW', 'float'),
     ('true_reward', 'TRW', 'float'),
@@ -52,7 +60,6 @@ AGENT_TRAIN_FORMAT = {
     ],
 }
 
-
 class AverageMeter(object):
     def __init__(self):
         self._sum = 0
@@ -65,12 +72,12 @@ class AverageMeter(object):
     def value(self):
         return self._sum / max(1, self._count)
 
-
 class MetersGroup(object):
     def __init__(self, file_name, formating, allow_dynamic_keys=False):
         self._csv_file_name = self._prepare_file(file_name, 'csv')
         self._formating = formating
         self._meters = defaultdict(AverageMeter)
+        os.makedirs(os.path.dirname(self._csv_file_name), exist_ok=True)
         self._csv_file = open(self._csv_file_name, 'w')
         self._csv_writer = None
         self._allow_dynamic_keys = allow_dynamic_keys
@@ -118,17 +125,15 @@ class MetersGroup(object):
         elif ty == 'time':
             return f'{key}: {value:04.1f} s'
         else:
-            raise f'invalid format type: {ty}'
+            raise Exception(f'invalid format type: {ty}')
 
     def _dump_to_console(self, data, prefix):
         prefix_col = 'yellow' if prefix == 'train' else ('green' if prefix == 'eval' else 'cyan')
-        prefix = colored(prefix, prefix_col)
-        pieces = [f'| {prefix: <14}']
+        prefix_disp = colored(prefix, prefix_col)
+        pieces = [f'| {prefix_disp: <14}']
         if self._allow_dynamic_keys and len(data) > 0:
-            # Print all keys in sorted order for dynamic metric group (like reward)
             for key in sorted(data.keys()):
                 value = data[key]
-                # Try to infer type for formatting
                 if isinstance(value, int):
                     pieces.append(f'{key}: {value}')
                 elif isinstance(value, float):
@@ -151,36 +156,37 @@ class MetersGroup(object):
             self._dump_to_console(data, prefix)
         self._meters.clear()
 
-
 class Logger(object):
     def __init__(self,
                  log_dir,
-                 save_tb=False,
+                 save_tb=True,
                  log_frequency=10000,
-                 agent='sac'):
+                 agent='sac',
+                 train_log_name='train',
+                 eval_log_name='eval',
+                 use_reward_mg=True):
         self._log_dir = log_dir
         self._log_frequency = log_frequency
-        if save_tb:
-            tb_dir = os.path.join(log_dir, 'tb')
+        if save_tb and HAS_TENSORBOARD:
+            tb_dir = os.path.join(log_dir, 'tb', str(time()).replace('.', '_'))
             if os.path.exists(tb_dir):
                 try:
                     shutil.rmtree(tb_dir)
                 except Exception:
-                    print("logger.py warning: Unable to remove tb directory")
+                    print("logger_union.py warning: Unable to remove tb directory")
                     pass
             self._sw = SummaryWriter(tb_dir)
         else:
             self._sw = None
-        # each agent has specific output format for training
         assert agent in AGENT_TRAIN_FORMAT
         train_format = COMMON_TRAIN_FORMAT + AGENT_TRAIN_FORMAT[agent]
-        self._train_mg = MetersGroup(os.path.join(log_dir, 'train'),
+        self._train_mg = MetersGroup(os.path.join(log_dir, 'train', train_log_name),
                                      formating=train_format)
-        self._eval_mg = MetersGroup(os.path.join(log_dir, 'eval'),
+        self._eval_mg = MetersGroup(os.path.join(log_dir, 'test', eval_log_name),
                                     formating=COMMON_EVAL_FORMAT)
-        self._reward_mg = MetersGroup(os.path.join(log_dir, 'reward'),
+        self._reward_mg = MetersGroup(os.path.join(log_dir, 'reward', 'reward'),
                                       formating=REWARD_METRIC_FORMAT,
-                                      allow_dynamic_keys=True)
+                                      allow_dynamic_keys=True) if use_reward_mg else None
 
     def _should_log(self, step, log_frequency):
         log_frequency = log_frequency or self._log_frequency
@@ -203,7 +209,8 @@ class Logger(object):
     def log(self, key, value, step, n=1, log_frequency=1):
         if not self._should_log(step, log_frequency):
             return
-        assert key.startswith('train') or key.startswith('eval') or key.startswith('reward')
+        if not (key.startswith('train') or key.startswith('eval') or key.startswith('reward')):
+            raise ValueError(f"Unknown log key prefix: {key}")
         if isinstance(value, torch.Tensor):
             value = value.item()
         self._try_sw_log(key, value / n, step)
@@ -211,10 +218,10 @@ class Logger(object):
             mg = self._train_mg
         elif key.startswith('eval'):
             mg = self._eval_mg
-        elif key.startswith('reward'):
+        elif key.startswith('reward') and self._reward_mg is not None:
             mg = self._reward_mg
         else:
-            raise ValueError(f"Unknown log key prefix: {key}")
+            return
         mg.log(key, value, n)
 
     def log_param(self, key, param, step, log_frequency=None):
@@ -244,12 +251,13 @@ class Logger(object):
         if ty is None:
             self._train_mg.dump(step, 'train', save)
             self._eval_mg.dump(step, 'eval', save)
-            self._reward_mg.dump(step, 'reward', save)
+            if self._reward_mg is not None:
+                self._reward_mg.dump(step, 'reward', save)
         elif ty == 'eval':
             self._eval_mg.dump(step, 'eval', save)
         elif ty == 'train':
             self._train_mg.dump(step, 'train', save)
-        elif ty == 'reward':
+        elif ty == 'reward' and self._reward_mg is not None:
             self._reward_mg.dump(step, 'reward', save)
         else:
-            raise f'invalid log type: {ty}'
+            raise Exception(f'invalid log type: {ty}')
