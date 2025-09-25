@@ -1,58 +1,11 @@
 defaults:
-    - agent: sac
+    - base
     
 # this needs to be specified manually
 experiment: RIME
 
-# reward learning
-segment: 50
-activation: tanh
-num_seed_steps: 1000
-num_unsup_steps: 9000
-num_interact: 20000
-reward_lr: 0.0003
-reward_batch: 100
-reward_update: 50
-feed_type: 0
-reset_update: 100
-topK: 5
-ensemble_size: 3
-max_feedback: 1000
-large_batch: 10
-label_margin: 0.0
-teacher_beta: -1
-teacher_gamma: 1
-teacher_eps_mistake: 0.0
-teacher_eps_skip: 0.0
-teacher_eps_equal: 0.0
-
-# scheduling
-reward_schedule: 0
-
-num_train_steps: 5e6
-replay_buffer_capacity: ${num_train_steps}
-
-# evaluation config
-eval_frequency: 10000
-num_eval_episodes: 10
-device: cuda
-
-# logger
-log_frequency: 1000
-log_save_tb: false
-eval_log_name: eval_RIME_mistake_${teacher_eps_mistake}_seed_${seed}
-train_log_name: train_RIME_mistake_${teacher_eps_mistake}_seed_${seed}
-
-# video recorder
-save_video: false
-
-# setups
-seed: 42
-
-# Environment
-env: walker_walk
 
 # hydra configuration
 hydra:
     run:
-        dir: ./exp_rime/${env}/seed${seed}/max_feedback${max_feedback}_n${reward_batch}_l${segment}_g${teacher_gamma}_b${teacher_beta}_m${teacher_eps_mistake}_s${teacher_eps_skip}_e${teacher_eps_equal}
+        dir: ./exp_rime_mixture/${env}/seed${seed}/max_feedback${max_feedback}_n${reward_batch}_l${segment}_g${teacher_gamma}_b${teacher_beta}_m${teacher_eps_mistake}_s${teacher_eps_skip}_e${teacher_eps_equal}
