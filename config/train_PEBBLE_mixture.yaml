@@ -1,5 +1,5 @@
 defaults:
-    - base
+    - base_mixture
 
 # this needs to be specified manually
 experiment: PEBBLE_mixture

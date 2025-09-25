@@ -55,64 +55,49 @@ class MixtureBufferDataset(Dataset):
 
 
 class MixtureRewardModel(RewardModel):
-    def __init__(self, reward_models: Union[List[RewardModel], None], ds, da, l2_factor=0.1,
-                 ensemble_size=3, mb_size=128, lr=3e-4, size_segment=1,
-                 env_maker=None, max_size=100, activation='tanh',capacity=5e5,
-                 large_batch=1, label_margin=0.0, logger: Union[Logger, None] = None, entropy_coef=0.05, init_trust=0.01):
+    def __init__(self, reward_models: Union[List[RewardModel], None], ds, da,
+                ensemble_size=3, mb_size=128, lr=3e-4, size_segment=1,
+                env_maker=None, max_size=100, activation='tanh',capacity=5e5,
+                large_batch=1, label_margin=0.0, logger: Union[Logger, None] = None, entropy_coef=0.05, init_trust=0.01):
         if reward_models is None:
             reward_models = [
                             RewardModel(ds, da, ensemble_size=ensemble_size, 
-                                         lr=lr, mb_size=mb_size, size_segment=size_segment,
-                                         env_maker=env_maker, max_size=max_size,
-                                         activation=activation, capacity=capacity, large_batch=large_batch,
-                                         label_margin=label_margin,
-                                         teacher_beta=1, teacher_gamma=1),
+                                        lr=lr, mb_size=mb_size, size_segment=size_segment,
+                                        env_maker=env_maker, max_size=max_size,
+                                        activation=activation, capacity=capacity, large_batch=large_batch,
+                                        label_margin=label_margin,
+                                        teacher_beta=1, teacher_gamma=1),
                             RewardModel(ds, da, ensemble_size=ensemble_size, 
-                                         lr=lr, mb_size=mb_size, size_segment=size_segment,
-                                         env_maker=env_maker, max_size=max_size,
-                                         activation=activation, capacity=capacity, large_batch=large_batch,
-                                         label_margin=label_margin,
-                                         teacher_beta=1, teacher_gamma=1),
+                                        lr=lr, mb_size=mb_size, size_segment=size_segment,
+                                        env_maker=env_maker, max_size=max_size,
+                                        activation=activation, capacity=capacity, large_batch=large_batch,
+                                        label_margin=label_margin,
+                                        teacher_beta=1, teacher_gamma=1),
                             RewardModel(ds, da, ensemble_size=ensemble_size, 
-                                         lr=lr, mb_size=mb_size, size_segment=size_segment,
-                                         env_maker=env_maker, max_size=max_size,
-                                         activation=activation, capacity=capacity, large_batch=large_batch,
-                                         label_margin=label_margin,
-                                         teacher_beta=1, teacher_gamma=1),
+                                        lr=lr, mb_size=mb_size, size_segment=size_segment,
+                                        env_maker=env_maker, max_size=max_size,
+                                        activation=activation, capacity=capacity, large_batch=large_batch,
+                                        label_margin=label_margin,
+                                        teacher_beta=1, teacher_gamma=1),
                             RewardModel(ds, da, ensemble_size=ensemble_size, 
-                                         lr=lr, mb_size=mb_size, size_segment=size_segment,
-                                         env_maker=env_maker, max_size=max_size,
-                                         activation=activation, capacity=capacity, large_batch=large_batch,
-                                         label_margin=label_margin,
-                                         teacher_beta=-1, teacher_gamma=1),
+                                        lr=lr, mb_size=mb_size, size_segment=size_segment,
+                                        env_maker=env_maker, max_size=max_size,
+                                        activation=activation, capacity=capacity, large_batch=large_batch,
+                                        label_margin=label_margin,
+                                        teacher_beta=-1, teacher_gamma=1),
                             ]
-        self.ds = ds
-        self.da = da
+        super.__init__()
         self.reward_models = reward_models
-        self.de = ensemble_size
-        self.mb_size = mb_size
-        self.origin_mb_size = mb_size
-        self.lr = lr
-        self.size_segment = size_segment
         self.env_maker = env_maker
-        self.max_size = max_size
-        self.capacity = capacity
-        self.large_batch = large_batch
         self.label_margin = label_margin
         self.l2_factor = 0
         # self.l2_factor = l2_factor
         self.entropy_coef = entropy_coef
 
-        self.ensemble = []
         self.alphas = []
-        self.paramlst = []
         self.init_trust = init_trust
-        self.opt = None
-        self.activation = activation
         
-        self.construct_ensemble()
         self.CEloss = nn.CrossEntropyLoss(reduction="none")
-        self.train_batch_size = 128
 
         self.label_margin = label_margin
         self.label_target = 1 - 2*self.label_margin
@@ -122,22 +107,7 @@ class MixtureRewardModel(RewardModel):
         self.logger = logger
 
         #dummy variables
-        self.running_means = []
-        self.running_stds = []
-        self.best_seg = []
-        self.best_label = []
-        self.best_action = []
-        self.inputs = []
-        self.targets = []
-        self.raw_actions = []
-        self.img_inputs = []
         self.teacher_beta = -1
-        self.teacher_gamma = 1
-        self.teacher_eps_mistake = 0
-        self.teacher_eps_equal = 0
-        self.teacher_eps_skip = 0
-        self.teacher_thres_skip = 0
-        self.teacher_thres_equal = 0
 
         # Check equality of size_segments across all reward models
         for reward_model in self.reward_models:
@@ -177,70 +147,22 @@ class MixtureRewardModel(RewardModel):
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
         
-    def get_entropy_loss(self, x_1, x_2):
-        # get probability x_1 > x_2
-        probs = []
-        for member in range(self.de):
-            probs.append(self.p_hat_entropy_loss(x_1, x_2, member=member))
-        probs_t = torch.stack(probs)
-        return torch.mean(probs_t, axis=0), torch.std(probs_t, axis=0)
-
-    def p_hat_member_loss(self, x_1, x_2, member=-1):
-        # softmaxing to get the probabilities according to eqn 1
-        r_hat1 = self.r_hat_member(x_1, member=member)
-        r_hat2 = self.r_hat_member(x_2, member=member)
-        r_hat1 = r_hat1.sum(axis=1)
-        r_hat2 = r_hat2.sum(axis=1)
-        r_hat = torch.cat([r_hat1, r_hat2], axis=-1)
-        
-        # taking 0 index for probability x_1 > x_2
-        return F.softmax(r_hat, dim=-1)[:,0]
-    
-    def p_hat_entropy_loss(self, x_1, x_2, member=-1):
-        # softmaxing to get the probabilities according to eqn 1
-        r_hat1 = self.r_hat_member(x_1, member=member)
-        r_hat2 = self.r_hat_member(x_2, member=member)
-        r_hat1 = r_hat1.sum(axis=1)
-        r_hat2 = r_hat2.sum(axis=1)
-        r_hat = torch.cat([r_hat1, r_hat2], axis=-1)
-        
-        ent = F.softmax(r_hat, dim=-1) * F.log_softmax(r_hat, dim=-1)
-        ent = ent.sum(axis=-1).abs()
-        return ent
-
-    def softXEnt_loss(self, input, target):
-        logprobs = torch.nn.functional.log_softmax (input, dim = 1)
-        return  -(target * logprobs).sum() / input.shape[0]
-    
-
     def change_batch(self, new_frac):
-        self.mb_size = int(self.origin_mb_size*new_frac)
+        super.change_batch(new_frac)
         for reward_model in self.reward_models:
             reward_model.change_batch(new_frac)
     
     def set_batch(self, new_batch):
-        self.mb_size = int(new_batch)
+        super.set_batch(new_batch)
         for reward_model in self.reward_models:
             reward_model.set_batch(new_batch)
         
-    def set_teacher_thres_skip(self, new_margin):
-        self.teacher_thres_skip = new_margin * self.teacher_eps_skip
-        
-    def set_teacher_thres_equal(self, new_margin):
-        self.teacher_thres_equal = new_margin * self.teacher_eps_equal
                 
     def construct_ensemble(self):
-        for _ in range(self.de):
-            model = nn.Sequential(*gen_net(in_size=self.ds+self.da, out_size=1,
-                                            H=256, n_layers=3, 
-                                            activation=self.activation)
-                                            ).float().to(device)
-            self.ensemble.append(model)
-            self.paramlst.extend(model.parameters())
+        super.construct_ensemble()
         alphas_tensor = self.init_trust * torch.ones(len(self.reward_models), dtype=torch.float32, device=device)
         self.alphas = nn.Parameter(alphas_tensor)
         self.paramlst.append(self.alphas)
-        self.opt = optim.Adam(self.paramlst, lr=self.lr)
         # self.sched = ExponentialLR(self.opt, gamma=0.999999)
         
     def add_data(self, obs, act, rew, done):
@@ -251,22 +173,6 @@ class MixtureRewardModel(RewardModel):
         for reward_model in self.reward_models:
             reward_model.add_data_batch(obses, rewards)
     
-    def r_hat_member(self, x, member=-1):
-        return self.ensemble[member](torch.from_numpy(x).float().to(device))
-    
-    def r_hat(self, x):
-        r_hats = []
-        for member in range(self.de):
-            r_hats.append(self.r_hat_member(x, member=member).detach().cpu().numpy())
-        r_hats = np.array(r_hats)
-        return np.mean(r_hats)
-    
-    def r_hat_batch(self, x):
-        r_hats = []
-        for member in range(self.de):
-            r_hats.append(self.r_hat_member(x, member=member).detach().cpu().numpy())
-        r_hats = np.array(r_hats)
-        return np.mean(r_hats, axis=0)
 
     def save(self, work_dir, step):
         os.makedirs(work_dir, exist_ok=True)
@@ -384,7 +290,7 @@ class MixtureRewardModel(RewardModel):
                     target_onehot += self.label_margin
                     if sum(uniform_index) > 0:
                         target_onehot[uniform_index] = 0.5
-                    cur_loss = self.softXEnt_loss(logits, target_onehot)
+                    cur_loss = super.softXEnt_loss(logits, target_onehot)
                 else:
                     cur_loss = self.CEloss(logits, labels)
 
@@ -436,6 +342,3 @@ class MixtureRewardModel(RewardModel):
 
     def train_soft_reward(self):
         return self._train_reward_common(use_soft_loss=True)
-        
-    
-

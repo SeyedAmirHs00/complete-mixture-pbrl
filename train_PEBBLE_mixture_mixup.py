@@ -81,9 +81,27 @@ class Workspace(object):
         #     teacher_eps_skip=cfg.teacher_eps_skip, 
         #     teacher_eps_equal=cfg.teacher_eps_equal)
 
-        self.reward_model = MixtureRewardModel( None,
-            self.env.observation_space.shape[0],
-            self.env.action_space.shape[0],
+        reward_models = []
+        for beta in cfg.teacher_betas:
+            reward_models.append(RewardModel(
+                self.env.observation_space.shape[0],
+                self.env.action_space.shape[0],
+                ensemble_size=cfg.ensemble_size,
+                size_segment=cfg.segment,
+                activation=cfg.activation, 
+                lr=cfg.reward_lr,
+                mb_size=cfg.reward_batch, 
+                large_batch=cfg.large_batch, 
+                label_margin=cfg.label_margin, 
+                teacher_beta=beta, 
+                teacher_gamma=cfg.teacher_gamma, 
+                teacher_eps_mistake=cfg.teacher_eps_mistake, 
+                teacher_eps_skip=cfg.teacher_eps_skip, 
+                teacher_eps_equal=cfg.teacher_eps_equal))
+
+        self.reward_model = MixtureRewardModel( reward_models=reward_models,
+            ds=self.env.observation_space.shape[0],
+            da=self.env.action_space.shape[0],
             ensemble_size=cfg.ensemble_size,
             size_segment=cfg.segment,
             activation=cfg.activation, 

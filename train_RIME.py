@@ -9,10 +9,12 @@ import torch.nn.functional as F
 from utils import utils_RIME as utils
 from agent.sac_RIME import SACAgent, compute_state_entropy
 from config.RIME import RIMEConfig
-from utils.logger_RIME import Logger
+from utils.logger import Logger
 from utils.replay_buffer import ReplayBuffer
-from reward_model.reward_model_RIME_mixture import RIMERewardModel, set_device_RIME
+from reward_model.reward_model_RIME_mixture import MixtureRIMERewardModel, set_device_RIME
+from reward_model.vanilla_reward_model_RIME import RewardModel
 import hydra
+
 
 class Workspace:
     def __init__(self, cfg):
@@ -25,8 +27,6 @@ class Workspace:
             save_tb=cfg.log_save_tb,
             log_frequency=cfg.log_frequency,
             agent=cfg.agent.name,
-            train_log_name=cfg.train_log_name,
-            eval_log_name=cfg.eval_log_name,
         )
 
         utils.set_seed_everywhere(cfg.seed)
@@ -66,8 +66,30 @@ class Workspace:
         self.labeled_feedback = 0
         self.step = 0
 
+        reward_models = []
+        for beta in cfg.teacher_betas:
+            reward_models.append(
+                RewardModel(
+                    self.env.observation_space.shape[0],
+                    self.env.action_space.shape[0],
+                    ensemble_size=cfg.ensemble_size,
+                    size_segment=cfg.segment,
+                    activation=cfg.activation, 
+                    lr=cfg.reward_lr,
+                    mb_size=cfg.reward_batch, 
+                    large_batch=cfg.large_batch, 
+                    label_margin=cfg.label_margin, 
+                    teacher_beta=beta, 
+                    teacher_gamma=cfg.teacher_gamma, 
+                    teacher_eps_mistake=cfg.teacher_eps_mistake, 
+                    teacher_eps_skip=cfg.teacher_eps_skip, 
+                    teacher_eps_equal=cfg.teacher_eps_equal
+                )
+            )
+
         # instantiating the reward model
-        self.reward_model = RIMERewardModel(
+        self.reward_model = MixtureRIMERewardModel(
+            reward_models=reward_models,
             seed=cfg.seed,
             device=self.device,
             k=k,

@@ -14,7 +14,7 @@ def set_device_RIME(dev):
     _set_global_device(dev)
 
 
-class RIMERewardModel(RewardModel):
+class MixtureRIMERewardModel(RewardModel):
     def __init__(
             self, 
             ds, da,

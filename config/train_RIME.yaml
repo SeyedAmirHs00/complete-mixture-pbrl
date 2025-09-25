@@ -1,9 +1,12 @@
 defaults:
-    - base
+    - base_mixture
     
 # this needs to be specified manually
 experiment: RIME
 
+# RIME specific parameters
+threshold_beta_init: 2.0
+threshold_beta_min: 0.1
 
 # hydra configuration
 hydra:
