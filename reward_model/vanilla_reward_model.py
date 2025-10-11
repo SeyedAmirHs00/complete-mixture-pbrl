@@ -3,10 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
+from .constants import RATIONAL_TEACHER
 
-device = 'cuda'
-
-RATIONAL_TEACHER = 1e9 + 7
+from .constants import device
 
 def set_device(dev):
     global device

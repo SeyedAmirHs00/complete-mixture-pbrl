@@ -11,12 +11,11 @@ import numpy as np
 
 from .vanilla_reward_model import RewardModel
 from .vanilla_reward_model import gen_net
-from .vanilla_reward_model import RATIONAL_TEACHER
+from .constants import RATIONAL_TEACHER, NEAR_ONE
 
 from typing import List, Union
 import os
 
-NEAR_ONE = 1 - 1e-6
 
 device = "cuda"
 
@@ -86,17 +85,18 @@ class MixtureRewardModel(RewardModel):
                                         label_margin=label_margin,
                                         teacher_beta=-1, teacher_gamma=1),
                             ]
-        super.__init__()
         self.reward_models = reward_models
+        self.init_trust = init_trust
+        super().__init__(ds, da, ensemble_size=ensemble_size, mb_size=mb_size, lr=lr,   size_segment=size_segment,
+                        env_maker=env_maker, max_size=max_size,
+                        activation=activation, capacity=capacity, large_batch=large_batch,
+                        label_margin=label_margin,
+                        teacher_beta=1, teacher_gamma=1)
         self.env_maker = env_maker
         self.label_margin = label_margin
-        self.l2_factor = 0
         # self.l2_factor = l2_factor
         self.entropy_coef = entropy_coef
 
-        self.alphas = []
-        self.init_trust = init_trust
-        
         self.CEloss = nn.CrossEntropyLoss(reduction="none")
 
         self.label_margin = label_margin
@@ -109,62 +109,34 @@ class MixtureRewardModel(RewardModel):
         #dummy variables
         self.teacher_beta = -1
 
-        # Check equality of size_segments across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.size_segment != size_segment:
-                raise ValueError(f"Size segment mismatch: {reward_model.size_segment} != {size_segment}")
-
-        # Check equality of ensemble_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.de != ensemble_size:
-                raise ValueError(f"Ensemble size mismatch: {reward_model.de} != {ensemble_size}")
-        
-        # Check equality of max_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.max_size != max_size:
-                raise ValueError(f"Max size mismatch: {reward_model.max_size} != {max_size}")
-        
-        # Check equality of size_segment across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.size_segment != size_segment:
-                raise ValueError(f"Size segment mismatch: {reward_model.size_segment} != {size_segment}")
-        
-        # Check equality of capacity across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.capacity != capacity:
-                raise ValueError(f"Capacity mismatch: {reward_model.capacity} != {capacity}")
-        
-        # Check equality of label_margin across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.label_margin != label_margin:
-                raise ValueError(f"Label margin mismatch: {reward_model.label_margin} != {label_margin}")
-
-        # Check equality of ensemble_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.de != self.de:
-                raise ValueError(f"Ensemble size mismatch: {reward_model.de} != {self.de}")
 
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
         
     def change_batch(self, new_frac):
-        super.change_batch(new_frac)
+        super().change_batch(new_frac)
         for reward_model in self.reward_models:
             reward_model.change_batch(new_frac)
     
     def set_batch(self, new_batch):
-        super.set_batch(new_batch)
+        super().set_batch(new_batch)
         for reward_model in self.reward_models:
             reward_model.set_batch(new_batch)
         
                 
     def construct_ensemble(self):
-        super.construct_ensemble()
+        for i in range(self.de):
+            model = nn.Sequential(*gen_net(in_size=self.ds+self.da, 
+                                           out_size=1, H=256, n_layers=3, 
+                                           activation=self.activation)).float().to(device)
+            self.ensemble.append(model)
+            self.paramlst.extend(model.parameters())
+            
         alphas_tensor = self.init_trust * torch.ones(len(self.reward_models), dtype=torch.float32, device=device)
         self.alphas = nn.Parameter(alphas_tensor)
         self.paramlst.append(self.alphas)
-        # self.sched = ExponentialLR(self.opt, gamma=0.999999)
-        
+        self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
+
     def add_data(self, obs, act, rew, done):
         for reward_model in self.reward_models:
             reward_model.add_data(obs, act, rew, done)
@@ -215,6 +187,28 @@ class MixtureRewardModel(RewardModel):
     def disagreement_sampling(self):
         cnt_labels = [reward_model.disagreement_sampling() for reward_model in self.reward_models]
         return sum(cnt_labels)
+
+    def shuffle_disagreement_sampling(self):
+        sa_t_1, sa_t_2, r_t_1, r_t_2 =  self.reward_models[0].get_queries(
+            mb_size=self.mb_size*self.large_batch*len(self.reward_models))
+        
+        _, disagree = self.get_rank_probability(sa_t_1, sa_t_2)
+        top_k_index = (-disagree).argsort()[:self.mb_size*len(self.reward_models)]
+        top_k_index = np.random.permutation(top_k_index)
+        r_t_1, sa_t_1 = r_t_1[top_k_index], sa_t_1[top_k_index]
+        r_t_2, sa_t_2 = r_t_2[top_k_index], sa_t_2[top_k_index]  
+
+        total_labels = 0
+        for i, reward_model in enumerate(self.reward_models):
+            sa_t_1_rm, sa_t_2_rm, r_t_1_rm, r_t_2_rm, labels_rm = reward_model.get_label(
+                sa_t_1[i*self.mb_size:(i+1)*self.mb_size], sa_t_2[i*self.mb_size:(i+1)*self.mb_size], r_t_1[i*self.mb_size:(i+1)*self.mb_size], r_t_2[i*self.mb_size:(i+1)*self.mb_size])
+            if len(labels_rm) > 0:
+                reward_model.put_queries(sa_t_1_rm, sa_t_2_rm, labels_rm)
+                total_labels += len(labels_rm)
+
+        return total_labels
+
+    # def inorder_disagreement_sampling(self):
     
     def entropy_sampling(self):
         cnt_labels = [reward_model.entropy_sampling() for reward_model in self.reward_models]
@@ -290,7 +284,7 @@ class MixtureRewardModel(RewardModel):
                     target_onehot += self.label_margin
                     if sum(uniform_index) > 0:
                         target_onehot[uniform_index] = 0.5
-                    cur_loss = super.softXEnt_loss(logits, target_onehot)
+                    cur_loss = super().softXEnt_loss(logits, target_onehot)
                 else:
                     cur_loss = self.CEloss(logits, labels)
 
@@ -322,17 +316,16 @@ class MixtureRewardModel(RewardModel):
 
             
             self.total_epochs += 1
+            alphas_tan = torch_tanh(self.alphas)
             if self.logger is not None:
                 for i, alpha in enumerate(self.alphas):
                     self.logger.log(f"reward/alpha_{i}", alpha.item(), self.total_epochs)
-            alphas_tan = torch_tanh(self.alphas)
-            if self.logger is not None:
                 for i, alpha in enumerate(alphas_tan):
                     self.logger.log(f"reward/alpha_tan_{i}", alpha.item(), self.total_epochs)
-            if self.logger is not None:
                 self.logger.log("reward/learning_rate", self.opt.param_groups[0]['lr'], self.total_epochs)
 
-        self.logger.dump(self.total_epochs, ty="reward")
+        if self.logger is not None:
+            self.logger.dump(self.total_epochs, ty="reward")
         ensemble_acc = ensemble_acc / total
         return ensemble_acc
 

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from scipy.stats import norm
 from utils.video import VideoRecorder
 
-RATIONAL_TEACHER = 1e9
+from .constants import RATIONAL_TEACHER
 
 device = 'cuda:0'
 def set_device(dev):

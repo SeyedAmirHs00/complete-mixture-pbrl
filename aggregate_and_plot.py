@@ -1,20 +1,22 @@
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
 import glob
 import os
 import re
 
-env_name = 'metaworld_sweep-into-v2'
-base_dir = os.path.join(os.path.dirname(__file__), 'RIME/', env_name)
-output_dir = os.path.join(os.path.dirname(__file__), 'other_results/RIME', env_name)
+log_folder = 'exp_pebble_mixture_alpha_sum_log_over'
+target_test = 'metaworld_sweep-into-v2/max_feedback20000_feed_type6_n100_l50_g1_b[1, 1, 1, -1]_m0_s0_e0'
+output_dir = 'results'
+
+base_dir = os.path.join(os.path.dirname(__file__), log_folder, target_test)
+output_dir = os.path.join(os.path.dirname(__file__), output_dir, log_folder, target_test)
 os.makedirs(output_dir, exist_ok=True)
 
 
 def get_csv_files(base_dir, csv_type):
-    csv_files_path = os.path.join(base_dir, '**', f'{csv_type}*.csv')
-    print(f'Looking for files in: {csv_files_path}')
+    base_dir_escaped = glob.escape(base_dir)
+    csv_files_path = os.path.join(base_dir_escaped, '**', f'{csv_type}.csv')
     csv_files = sorted(glob.glob(csv_files_path, recursive=True))
     return csv_files
 
@@ -57,7 +59,7 @@ def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None)
         if dfs is not None and csv_files is not None:
             for df, fname in zip(dfs, csv_files):
                 if x_values in df.columns and metric in df.columns:
-                    match = re.search(r'seed_\d+', fname)
+                    match = re.search(r'seed\d+', fname)
                     label = match.group(0) if match else os.path.basename(os.path.dirname(fname))
                     plt.plot(df[x_values], df[metric], alpha=0.3, label=label)
 
@@ -87,6 +89,7 @@ def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None)
 for csv_type in ['train', 'reward', 'eval']:
     print(f'Processing {csv_type}.csv...')
     csv_files = get_csv_files(base_dir, csv_type)
+    print(csv_files)
     dfs = [pd.read_csv(f) for f in csv_files if os.path.getsize(f) > 0]
     if not dfs:
         continue

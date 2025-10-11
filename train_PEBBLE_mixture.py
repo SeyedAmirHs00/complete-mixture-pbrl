@@ -14,7 +14,7 @@ import tqdm
 from utils.logger import Logger
 from utils.replay_buffer import ReplayBuffer
 from reward_model import RewardModel
-from reward_model.mixture_reward_model_tanh import MixtureRewardModel
+from reward_model.mixture_reward_model_alpha_log import MixtureRewardModel
 from collections import deque
 
 from utils import utils
@@ -175,6 +175,8 @@ class Workspace(object):
                 labeled_queries = self.reward_model.kcenter_disagree_sampling()
             elif self.cfg.feed_type == 5:
                 labeled_queries = self.reward_model.kcenter_entropy_sampling()
+            elif self.cfg.feed_type == 6:
+                labeled_queries = self.reward_model.shuffle_disagreement_sampling()
             else:
                 raise NotImplementedError
         

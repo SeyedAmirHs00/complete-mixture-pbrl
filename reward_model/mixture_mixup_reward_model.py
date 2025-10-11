@@ -133,41 +133,6 @@ class MixtureRewardModel:
         self.teacher_thres_skip = 0
         self.teacher_thres_equal = 0
 
-        # Check equality of size_segments across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.size_segment != size_segment:
-                raise ValueError(f"Size segment mismatch: {reward_model.size_segment} != {size_segment}")
-
-        # Check equality of ensemble_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.de != ensemble_size:
-                raise ValueError(f"Ensemble size mismatch: {reward_model.de} != {ensemble_size}")
-        
-        # Check equality of max_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.max_size != max_size:
-                raise ValueError(f"Max size mismatch: {reward_model.max_size} != {max_size}")
-        
-        # Check equality of size_segment across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.size_segment != size_segment:
-                raise ValueError(f"Size segment mismatch: {reward_model.size_segment} != {size_segment}")
-        
-        # Check equality of capacity across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.capacity != capacity:
-                raise ValueError(f"Capacity mismatch: {reward_model.capacity} != {capacity}")
-        
-        # Check equality of label_margin across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.label_margin != label_margin:
-                raise ValueError(f"Label margin mismatch: {reward_model.label_margin} != {label_margin}")
-
-        # Check equality of ensemble_size across all reward models
-        for reward_model in self.reward_models:
-            if reward_model.de != self.de:
-                raise ValueError(f"Ensemble size mismatch: {reward_model.de} != {self.de}")
-
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
         
@@ -328,6 +293,26 @@ class MixtureRewardModel:
     def kcenter_entropy_sampling(self):
         cnt_labels = [reward_model.kcenter_entropy_sampling() for reward_model in self.reward_models]
         return sum(cnt_labels)
+    
+    def shuffle_disagreement_sampling(self):
+        sa_t_1, sa_t_2, r_t_1, r_t_2 =  self.reward_models[0].get_queries(
+            mb_size=self.mb_size*self.large_batch*len(self.reward_models))
+        
+        _, disagree = self.get_rank_probability(sa_t_1, sa_t_2)
+        top_k_index = (-disagree).argsort()[:self.mb_size*len(self.reward_models)]
+        top_k_index = np.random.permutation(top_k_index)
+        r_t_1, sa_t_1 = r_t_1[top_k_index], sa_t_1[top_k_index]
+        r_t_2, sa_t_2 = r_t_2[top_k_index], sa_t_2[top_k_index]  
+
+        total_labels = 0
+        for i, reward_model in enumerate(self.reward_models):
+            sa_t_1_rm, sa_t_2_rm, r_t_1_rm, r_t_2_rm, labels_rm = reward_model.get_label(
+                sa_t_1[i*self.mb_size:(i+1)*self.mb_size], sa_t_2[i*self.mb_size:(i+1)*self.mb_size], r_t_1[i*self.mb_size:(i+1)*self.mb_size], r_t_2[i*self.mb_size:(i+1)*self.mb_size])
+            if len(labels_rm) > 0:
+                reward_model.put_queries(sa_t_1_rm, sa_t_2_rm, labels_rm)
+                total_labels += len(labels_rm)
+
+        return total_labels
     
     def mixup_batch(self, sa_t_1, sa_t_2, target_onehot):
         """_summary_

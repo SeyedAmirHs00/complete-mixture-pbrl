@@ -46,6 +46,6 @@ RUN pip install "cython<3"
 RUN wget https://github.com/Farama-Foundation/Metaworld/archive/refs/tags/v2.0.0.tar.gz \
     && tar -xvzf v2.0.0.tar.gz \
     && cd Metaworld-2.0.0 \
-    && pip install -e .
+    && pip install .
 
 RUN pip install transformers==4.32.0

@@ -51,7 +51,7 @@ class Workspace:
             float(self.env.action_space.high.max())
         ]
         self.agent = SACAgent(
-            obs_dim, action_dim, action_range, cfg
+            obs_dim, action_dim, action_range, cfg, self.device
         )
 
         self.replay_buffer = ReplayBuffer(
@@ -108,7 +108,6 @@ class Workspace:
             mb_size=cfg.reward_batch, 
             large_batch=cfg.large_batch, 
             label_margin=cfg.label_margin, 
-            teacher_beta=cfg.teacher_beta, 
             teacher_gamma=cfg.teacher_gamma, 
             teacher_eps_mistake=cfg.teacher_eps_mistake, 
             teacher_eps_skip=cfg.teacher_eps_skip, 
@@ -186,7 +185,8 @@ class Workspace:
             elif self.cfg.feed_type == 5:
                 labeled_queries = self.reward_model.kcenter_entropy_sampling()
             elif self.cfg.feed_type == 6:
-                labeled_queries = self.reward_model.uniform_sampling()
+                labeled_queries = self.reward_model.shuffle_disagreement_sampling()
+            else:
                 raise NotImplementedError
         
         self.total_feedback += self.reward_model.mb_size

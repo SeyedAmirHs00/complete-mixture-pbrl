@@ -7,10 +7,12 @@ from typing import List, Union
 from .vanilla_reward_model_RIME import RewardModel, device as _global_device, set_device as _set_global_device
 from utils.utils_RIME import RunningMeanStd
 
+from .constants import RATIONAL_TEACHER
+
 
 def set_device_RIME(dev):
     global _global_device
-    device = dev
+    _global_device = dev
     _set_global_device(dev)
 
 
@@ -59,7 +61,7 @@ class MixtureRIMERewardModel(RewardModel):
         self.update_step = 0
         
         if reward_models is None:
-            self.reward_models = [
+            reward_models = [
                 RewardModel(ds, da, ensemble_size=ensemble_size,
                             lr=lr, mb_size=mb_size, size_segment=size_segment,
                             env_maker=env_maker, max_size=max_size,
@@ -81,6 +83,7 @@ class MixtureRIMERewardModel(RewardModel):
                             activation=activation, capacity=capacity, large_batch=large_batch,
                             label_margin=label_margin, teacher_beta=-1, teacher_gamma=1),
             ]
+        self.reward_models = reward_models
         for rm in self.reward_models:
             rm.ensemble = self.ensemble
     def add_data(self, obs, act, rew, done):
@@ -115,13 +118,31 @@ class MixtureRIMERewardModel(RewardModel):
         cnt_labels = [reward_model.kcenter_entropy_sampling() for reward_model in self.reward_models]
         return sum(cnt_labels)
 
-
-
     def set_lr_schedule(self):
         self.lr_schedule = get_constant_schedule_with_warmup(self.opt, self.num_warmup_steps)
 
     def get_threshold_beta(self):
         return max(self.threshold_beta_min, -(self.threshold_beta_init-self.threshold_beta_min)/self.k * self.update_step + self.threshold_beta_init)
+
+    def shuffle_disagreement_sampling(self):
+        sa_t_1, sa_t_2, r_t_1, r_t_2 =  self.reward_models[0].get_queries(
+            mb_size=self.mb_size*self.large_batch*len(self.reward_models))
+        
+        _, disagree = self.get_rank_probability(sa_t_1, sa_t_2)
+        top_k_index = (-disagree).argsort()[:self.mb_size*len(self.reward_models)]
+        top_k_index = np.random.permutation(top_k_index)
+        r_t_1, sa_t_1 = r_t_1[top_k_index], sa_t_1[top_k_index]
+        r_t_2, sa_t_2 = r_t_2[top_k_index], sa_t_2[top_k_index]  
+
+        total_labels = 0
+        for i, reward_model in enumerate(self.reward_models):
+            sa_t_1_rm, sa_t_2_rm, r_t_1_rm, r_t_2_rm, labels_rm, GT_labels_rm = reward_model.get_label(
+                sa_t_1[i*self.mb_size:(i+1)*self.mb_size], sa_t_2[i*self.mb_size:(i+1)*self.mb_size], r_t_1[i*self.mb_size:(i+1)*self.mb_size], r_t_2[i*self.mb_size:(i+1)*self.mb_size])
+            if len(labels_rm) > 0:
+                reward_model.put_queries(sa_t_1_rm, sa_t_2_rm, labels_rm, GT_labels_rm)
+                total_labels += len(labels_rm)
+
+        return total_labels
     
     def train_reward(self, debug=False, trust_sample=True, label_flipping=True):
         # -------- 0) Gather ALL examples from ALL experts --------

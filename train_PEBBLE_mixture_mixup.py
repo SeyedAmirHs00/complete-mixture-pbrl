@@ -177,6 +177,8 @@ class Workspace(object):
                 labeled_queries = self.reward_model.kcenter_disagree_sampling()
             elif self.cfg.feed_type == 5:
                 labeled_queries = self.reward_model.kcenter_entropy_sampling()
+            elif self.cfg.feed_type == 6:
+                labeled_queries = self.reward_model.shuffle_disagreement_sampling()
             else:
                 raise NotImplementedError
         
