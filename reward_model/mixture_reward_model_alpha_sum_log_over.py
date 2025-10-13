@@ -112,6 +112,8 @@ class MixtureRewardModel(RewardModel):
 
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
+            reward_model.inputs = self.inputs
+            reward_model.targets = self.targets
         
     def change_batch(self, new_frac):
         super().change_batch(new_frac)
@@ -138,12 +140,10 @@ class MixtureRewardModel(RewardModel):
         self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
 
     def add_data(self, obs, act, rew, done):
-        for reward_model in self.reward_models:
-            reward_model.add_data(obs, act, rew, done)
+        super().add_data(obs, act, rew, done)
 
     def add_data_batch(self, obses, rewards):
-        for reward_model in self.reward_models:
-            reward_model.add_data_batch(obses, rewards)
+        super().add_data_batch(obses, rewards)
     
 
     def save(self, work_dir, step):
@@ -244,7 +244,7 @@ class MixtureRewardModel(RewardModel):
 
         ensemble_losses = [[] for _ in range(self.de)]
         ensemble_acc    = np.zeros(self.de, dtype=np.int64)
-        total           = 0
+        total           = np.zeros(self.de, dtype=np.int64)
 
         while True:
             self.opt.zero_grad()
@@ -255,7 +255,7 @@ class MixtureRewardModel(RewardModel):
                 try:
                     seg1, seg2, labels, expert_inds, expert_data_counters = next(loader)
                     batch_size = labels.size(0)
-                    total += batch_size
+                    total[m] += batch_size
                 except StopIteration:
                     is_finished = True
                     break

@@ -14,7 +14,7 @@ import tqdm
 from utils.logger import Logger
 from utils.replay_buffer import ReplayBuffer
 from reward_model import RewardModel
-from reward_model.mixture_reward_model_alpha_log import MixtureRewardModel
+from reward_model.mixture_reward_model_alpha_sum_log_over import MixtureRewardModel
 from collections import deque
 
 from utils import utils
@@ -180,7 +180,7 @@ class Workspace(object):
             else:
                 raise NotImplementedError
         
-        self.total_feedback += self.reward_model.mb_size
+        self.total_feedback += len(self.reward_model.reward_models) * self.reward_model.mb_size
         self.labeled_feedback += labeled_queries
         
         train_acc = 0
@@ -349,7 +349,7 @@ class Workspace(object):
         self.agent.save(self.work_dir, self.step)
         self.reward_model.save(self.work_dir, self.step)
         
-@hydra.main(config_path='config', config_name='train_PEBBLE_mixture', strict=True)
+@hydra.main(config_path='config', config_name='train_PEBBLE_mixture_alpha_sum_log_over', strict=True)
 def main(cfg):
     # cfg.feed_type = 1  # Set the feedback type to disagreement sampling
     print(cfg)
