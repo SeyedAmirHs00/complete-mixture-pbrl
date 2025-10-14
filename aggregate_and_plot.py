@@ -5,13 +5,19 @@ import glob
 import os
 import re
 
+file_dir = os.path.dirname(__file__)
 log_folder = 'exp_pebble_mixture_alpha_sum_log_over'
-target_test = 'metaworld_sweep-into-v2/max_feedback20000_feed_type6_n100_l50_g1_b[1, 1, 1, -1]_m0_s0_e0'
-output_dir = 'results'
+env_name = 'walker_walk'
+test = None
+results_dir = 'results'
+check_all_tests = True
 
-base_dir = os.path.join(os.path.dirname(__file__), log_folder, target_test)
-output_dir = os.path.join(os.path.dirname(__file__), output_dir, log_folder, target_test)
-os.makedirs(output_dir, exist_ok=True)
+def check_dir(log_folder=log_folder, env_name=env_name, test=test, results_dir=results_dir):
+    global base_dir, output_dir
+    target_test = os.path.join(log_folder, env_name, test)
+    base_dir = os.path.join(file_dir, target_test)
+    output_dir = os.path.join(file_dir, results_dir, target_test)
+    os.makedirs(output_dir, exist_ok=True)
 
 
 def get_csv_files(base_dir, csv_type):
@@ -51,7 +57,7 @@ def process_csv_files(csv_type):
     return grouped, metrics, x_values
 
 
-def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None):
+def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None, title=test):
     for metric in metrics:
         plt.figure(figsize=(10, 6))
 
@@ -76,6 +82,7 @@ def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None)
 
         plt.xlabel(x_values)
         plt.ylabel(metric)
+        plt.title(f'{title} - {metric} over {x_values} ({csv_type})')
         plt.legend()
         plt.tight_layout()
 
@@ -86,16 +93,36 @@ def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None)
 
 
 # Process and plot for train.csv, reward.csv, and eval.csv
-for csv_type in ['train', 'reward', 'eval']:
-    print(f'Processing {csv_type}.csv...')
-    csv_files = get_csv_files(base_dir, csv_type)
-    print(csv_files)
-    dfs = [pd.read_csv(f) for f in csv_files if os.path.getsize(f) > 0]
-    if not dfs:
-        continue
-    
-    grouped, metrics, x_values = process_csv_files(csv_type)
-    if grouped is not None:
-        plot_metrics(grouped, metrics, x_values, csv_type, dfs=dfs, csv_files=csv_files)
+if test is None:
+    target_log = os.path.join(file_dir, log_folder, env_name)
+    test_dirs = [d for d in glob.glob(os.path.join(target_log, '*')) if os.path.isdir(d)]
+    for test_dir in test_dirs:
+        test = os.path.basename(test_dir)
+        print(f'Processing test: {test}')
+        check_dir(test=test)
+        for csv_type in ['train', 'reward', 'eval']:
+            print(f'Processing {csv_type}.csv...')
+            csv_files = get_csv_files(base_dir, csv_type)
+            print(csv_files)
+            dfs = [pd.read_csv(f) for f in csv_files if os.path.getsize(f) > 0]
+            if not dfs:
+                continue
+            
+            grouped, metrics, x_values = process_csv_files(csv_type)
+            if grouped is not None:
+                plot_metrics(grouped, metrics, x_values, csv_type, dfs=dfs, csv_files=csv_files, title=test)
+    print('All tests processed.')
+else:
+    for csv_type in ['train', 'reward', 'eval']:
+        print(f'Processing {csv_type}.csv...')
+        csv_files = get_csv_files(base_dir, csv_type)
+        print(csv_files)
+        dfs = [pd.read_csv(f) for f in csv_files if os.path.getsize(f) > 0]
+        if not dfs:
+            continue
+        
+        grouped, metrics, x_values = process_csv_files(csv_type)
+        if grouped is not None:
+            plot_metrics(grouped, metrics, x_values, csv_type, dfs=dfs, csv_files=csv_files, title=test)
 
-print('All metrics plotted.')
+    print('All metrics plotted.')
