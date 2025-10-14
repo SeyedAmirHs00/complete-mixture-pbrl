@@ -20,6 +20,9 @@ RUN apt-get update && apt-get install -y \
 # Install PyQt5
 RUN pip install --no-cache-dir PyQt5==5.14.2
 
+# Install for data processing and visualization
+RUN pip install pandas matplotlib seaborn
+
 # Install MuJoCo
 RUN mkdir -p ${MUJOCO_DIR} \
     && wget https://mujoco.org/download/mujoco${MUJOCO_VERSION}-linux-x86_64.tar.gz -O /tmp/mujoco.tar.gz \
@@ -40,6 +43,7 @@ RUN pip install dm_control==1.0.12
 RUN pip install git+https://github.com/denisyarats/dmc2gym.git
 RUN pip install tensorboard termcolor pybullet scikit-image
 RUN pip install hydra-core==1.0.4
+RUN pip install transformers==4.32.0
 RUN pip install "cython<3"
 
 # Install Metaworld
@@ -47,5 +51,3 @@ RUN wget https://github.com/Farama-Foundation/Metaworld/archive/refs/tags/v2.0.0
     && tar -xvzf v2.0.0.tar.gz \
     && cd Metaworld-2.0.0 \
     && pip install .
-
-RUN pip install transformers==4.32.0
