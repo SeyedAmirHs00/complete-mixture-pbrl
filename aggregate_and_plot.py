@@ -95,7 +95,7 @@ def plot_metrics(grouped, metrics, x_values, csv_type, dfs=None, csv_files=None,
 # Process and plot for train.csv, reward.csv, and eval.csv
 if test is None:
     target_log = os.path.join(file_dir, log_folder, env_name)
-    test_dirs = [d for d in glob.glob(os.path.join(target_log, '*')) if os.path.isdir(d)]
+    test_dirs = [d for d in glob.glob(os.path.join(target_log, '*1000*')) if os.path.isdir(d)]
     for test_dir in test_dirs:
         test = os.path.basename(test_dir)
         print(f'Processing test: {test}')
