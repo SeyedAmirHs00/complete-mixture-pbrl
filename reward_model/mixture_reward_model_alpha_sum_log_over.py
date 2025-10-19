@@ -168,16 +168,12 @@ class MixtureRewardModel(RewardModel):
         for idx, model in enumerate(obj.ensemble):
             model_path = os.path.join(work_dir, f'ensemble_{idx}_step_{step}.pt')
             model.load_state_dict(torch.load(model_path, map_location=device))
-        # Load alphas
-        alphas_path = os.path.join(work_dir, f'alphas_step_{step}.pt')
-        obj.alphas.data = torch.load(alphas_path, map_location=device)
+
         # Load reward models
         for idx, reward_model in enumerate(obj.reward_models):
-            if hasattr(reward_model, 'load'):
-                obj.reward_models[idx] = reward_model.load(work_dir, f'{step}_reward_model_{idx}', ds, da)
-            else:
-                model_path = os.path.join(work_dir, f'reward_model_{idx}_step_{step}.pt')
-                reward_model.load_state_dict(torch.load(model_path, map_location=device))
+            for idx2, ensemble_model in enumerate(reward_model.ensemble):
+                ensemble_model_path = os.path.join(work_dir, f'ensemble_{idx2}_step_{step}.pt')
+                ensemble_model.load_state_dict(torch.load(ensemble_model_path, map_location=device))
         return obj
 
     def uniform_sampling(self):

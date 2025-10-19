@@ -36,7 +36,7 @@ device: cuda
 
 # logger
 log_frequency: 10000
-log_save_tb: true
+log_save_tb: false
 
 # training 
 num_train_steps: 1e6
