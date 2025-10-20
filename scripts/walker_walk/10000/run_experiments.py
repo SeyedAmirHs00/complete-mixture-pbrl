@@ -19,7 +19,7 @@ def run_experiment(seed: int, teacher_betas: List[float]):
         "diag_gaussian_actor.params.hidden_dim=1024",
         "diag_gaussian_actor.params.hidden_depth=2",
         "num_unsup_steps=9000",
-        "reward_batch=200",  # Changed from 10 to 20
+        "reward_batch=20scripts/walker_walk/1000/run_pebble_mixture_b[1,1,0,0,0].py0",  # Changed from 10 to 20
         "num_interact=20000",
         "max_feedback=10000",  # Changed from 500 to 1000
         "feed_type=6",
