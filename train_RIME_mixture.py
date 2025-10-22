@@ -387,7 +387,7 @@ class Workspace:
         self.agent.save(save_dir, self.step)
         self.reward_model.save(save_dir, self.step)
 
-@hydra.main(config_path='config', config_name='train_RIME', strict=True)
+@hydra.main(config_path='config', config_name='train_RIME_mixture', strict=True)
 def main(cfg):
     print(cfg)
     workspace = Workspace(cfg)

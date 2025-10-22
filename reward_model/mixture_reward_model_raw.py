@@ -134,9 +134,9 @@ class MixtureRewardModel(RewardModel):
             self.ensemble.append(model)
             self.paramlst.extend(model.parameters())
             
-        alphas_tensor = self.init_trust * torch.ones(len(self.reward_models), dtype=torch.float32, device=device)
+        alphas_tensor = torch.ones(len(self.reward_models), dtype=torch.float32, device=device)
         self.alphas = nn.Parameter(alphas_tensor)
-        self.paramlst.append(self.alphas)
+        # self.paramlst.append(self.alphas)
         self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
 
     def add_data(self, obs, act, rew, done):
@@ -145,7 +145,6 @@ class MixtureRewardModel(RewardModel):
     def add_data_batch(self, obses, rewards):
         super().add_data_batch(obses, rewards)
     
-
     def save(self, work_dir, step):
         os.makedirs(work_dir, exist_ok=True)
         # Save ensemble models
@@ -153,7 +152,6 @@ class MixtureRewardModel(RewardModel):
             torch.save(model.state_dict(), os.path.join(work_dir, f'ensemble_{idx}_step_{step}.pt'))
         # Save alphas
         torch.save(self.alphas.data, os.path.join(work_dir, f'alphas_step_{step}.pt'))
-
 
     @classmethod
     def load(cls, work_dir, step, ds, da, reward_models=None, **kwargs):
@@ -261,11 +259,11 @@ class MixtureRewardModel(RewardModel):
                 r2 = self.ensemble[m](torch.cat((seg2,), dim=1)).sum(dim=1)
                 logits = torch.stack([r1, r2], dim=1)
 
-                alphas_tan = torch_tanh(self.alphas)
-                alphas_m = self.alphas[expert_inds]
-                alphas_m_tan = torch_tanh(alphas_m)
-                logits_coef = alphas_m_tan / alphas_tan.abs().max().detach()
-                logits = logits * logits_coef.view(-1, 1, 1)
+                # alphas_tan = torch_tanh(self.alphas)
+                # alphas_m = self.alphas[expert_inds]
+                # alphas_m_tan = torch_tanh(alphas_m)
+                # logits_coef = alphas_m_tan / alphas_tan.abs().max().detach()
+                logits = logits  # * logits_coef.view(-1, 1, 1)
 
                 if use_soft_loss:
                     uniform_index = labels == -1
@@ -290,9 +288,9 @@ class MixtureRewardModel(RewardModel):
                 #     -expert_data_counters / dataset.total_data_counter
                 # )
                 # cur_loss = trust_weight * data_coverage_penalty * cur_loss
-                alphas_tan = torch_tanh(self.alphas)
-                alphas_tan_abs_sum = alphas_tan.abs().sum()
-                cur_loss =cur_loss * alphas_m_tan.abs() / (alphas_tan_abs_sum + 1e-8) * len(self.reward_models)
+                # alphas_tan = torch_tanh(self.alphas)
+                # alphas_tan_abs_sum = alphas_tan.abs().sum()
+                cur_loss = cur_loss 
                 cur_loss = cur_loss.mean()
                 loss += cur_loss
                 ensemble_losses[m].append(loss.item())

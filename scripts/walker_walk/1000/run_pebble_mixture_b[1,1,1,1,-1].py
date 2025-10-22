@@ -3,5 +3,5 @@ from run_experiments import run_multiple_seeds
 
 if __name__ == "__main__":
     teacher_betas = [1, 1, 1, 1, -1]
-    success = run_multiple_seeds(teacher_betas)
+    success = run_multiple_seeds(teacher_betas, seeds=[23451, 34512, 45123, 51234])
     exit(0 if success else 1)
