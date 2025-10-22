@@ -112,8 +112,6 @@ class MixtureRewardModel(RewardModel):
 
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
-            reward_model.inputs = self.inputs
-            reward_model.targets = self.targets
         
     def change_batch(self, new_frac):
         super().change_batch(new_frac)
@@ -140,11 +138,12 @@ class MixtureRewardModel(RewardModel):
         self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
 
     def add_data(self, obs, act, rew, done):
-        super().add_data(obs, act, rew, done)
+        for reward_model in self.reward_models:
+            reward_model.add_data(obs, act, rew, done)
 
     def add_data_batch(self, obses, rewards):
-        super().add_data_batch(obses, rewards)
-    
+        for reward_model in self.reward_models:
+            reward_model.add_data_batch(obses, rewards)
 
     def save(self, work_dir, step):
         os.makedirs(work_dir, exist_ok=True)
