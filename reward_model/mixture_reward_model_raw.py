@@ -114,7 +114,7 @@ class MixtureRewardModel(RewardModel):
             reward_model.ensemble = self.ensemble
             reward_model.inputs = self.inputs
             reward_model.targets = self.targets
-        
+    
     def change_batch(self, new_frac):
         super().change_batch(new_frac)
         for reward_model in self.reward_models:

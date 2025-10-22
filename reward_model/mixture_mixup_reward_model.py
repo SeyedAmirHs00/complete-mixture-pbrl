@@ -154,6 +154,27 @@ class MixtureRewardModel:
         
         # taking 0 index for probability x_1 > x_2
         return F.softmax(r_hat, dim=-1)[:,0]
+
+    def p_hat_member(self, x_1, x_2, member=-1):
+        # softmaxing to get the probabilities according to eqn 1
+        with torch.no_grad():
+            r_hat1 = self.r_hat_member(x_1, member=member)
+            r_hat2 = self.r_hat_member(x_2, member=member)
+            r_hat1 = r_hat1.sum(axis=1)
+            r_hat2 = r_hat2.sum(axis=1)
+            r_hat = torch.cat([r_hat1, r_hat2], axis=-1)
+        
+        # taking 0 index for probability x_1 > x_2
+        return F.softmax(r_hat, dim=-1)[:,0]
+
+    def get_rank_probability(self, x_1, x_2):
+        # get probability x_1 > x_2
+        probs = []
+        for member in range(self.de):
+            probs.append(self.p_hat_member(x_1, x_2, member=member).cpu().numpy())
+        probs = np.array(probs)
+        
+        return np.mean(probs, axis=0), np.std(probs, axis=0)
     
     def p_hat_entropy_loss(self, x_1, x_2, member=-1):
         # softmaxing to get the probabilities according to eqn 1
