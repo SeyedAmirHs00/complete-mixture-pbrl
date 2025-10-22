@@ -188,8 +188,8 @@ class Workspace:
                 labeled_queries = self.reward_model.shuffle_disagreement_sampling()
             else:
                 raise NotImplementedError
-        
-        self.total_feedback += self.reward_model.mb_size
+
+        self.total_feedback += len(self.reward_model.reward_models) * self.reward_model.mb_size
         self.labeled_feedback += labeled_queries
         
         train_acc = 0
