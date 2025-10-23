@@ -112,9 +112,7 @@ class MixtureRewardModel(RewardModel):
 
         for reward_model in self.reward_models:
             reward_model.ensemble = self.ensemble
-            reward_model.inputs = self.inputs
-            reward_model.targets = self.targets
-    
+        
     def change_batch(self, new_frac):
         super().change_batch(new_frac)
         for reward_model in self.reward_models:
@@ -140,11 +138,13 @@ class MixtureRewardModel(RewardModel):
         self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
 
     def add_data(self, obs, act, rew, done):
-        super().add_data(obs, act, rew, done)
+        for reward_model in self.reward_models:
+            reward_model.add_data(obs, act, rew, done)
 
     def add_data_batch(self, obses, rewards):
-        super().add_data_batch(obses, rewards)
-    
+        for reward_model in self.reward_models:
+            reward_model.add_data_batch(obses, rewards)
+
     def save(self, work_dir, step):
         os.makedirs(work_dir, exist_ok=True)
         # Save ensemble models
@@ -152,6 +152,7 @@ class MixtureRewardModel(RewardModel):
             torch.save(model.state_dict(), os.path.join(work_dir, f'ensemble_{idx}_step_{step}.pt'))
         # Save alphas
         torch.save(self.alphas.data, os.path.join(work_dir, f'alphas_step_{step}.pt'))
+
 
     @classmethod
     def load(cls, work_dir, step, ds, da, reward_models=None, **kwargs):
@@ -290,7 +291,6 @@ class MixtureRewardModel(RewardModel):
                 # cur_loss = trust_weight * data_coverage_penalty * cur_loss
                 # alphas_tan = torch_tanh(self.alphas)
                 # alphas_tan_abs_sum = alphas_tan.abs().sum()
-                cur_loss = cur_loss 
                 cur_loss = cur_loss.mean()
                 loss += cur_loss
                 ensemble_losses[m].append(loss.item())
