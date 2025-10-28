@@ -6,8 +6,8 @@ import os
 import re
 
 file_dir = os.path.dirname(__file__)
-log_folder = 'exp_rime_mixture'
-env_name = 'metaworld_sweep-into-v2'
+log_folder = 'exp_pebble_mixture_raw'
+env_name = 'metaworld_door-open-v2'
 test = None
 results_dir = 'results'
 check_all_tests = True
