@@ -102,10 +102,10 @@ pngs/
 Thumbs.db
 
 # Ignore workspace and experiment folders
-workspace/
-exp_*/
-other/
-exp*/
+./workspace/
+./exp_*/
+./other/
+./exp*/
 
 *.pyc
 __pycache__/
