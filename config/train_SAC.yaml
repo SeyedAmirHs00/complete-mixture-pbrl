@@ -27,4 +27,4 @@ save_model: true
 # hydra configuration
 hydra:
     run:
-        dir: ./exp_sac/${env}/seed${seed}
+        dir: ./exp_sac/${env}/tests/seed${seed}
