@@ -1,0 +1,16 @@
+defaults:
+    - base_mixture
+    - agent: sac
+
+# this needs to be specified manually
+experiment: PEBBLE_mixture_ablation
+
+# Practical enhancements from TriTrust-PBRL (Section cross-entropy-weight)
+use_tanh: true
+use_max_norm: true
+use_confidence_weight: true
+
+# hydra configuration
+hydra:
+    run:
+        dir: ./exp_pebble_mixture_ablation/${env}/ablation_t${use_tanh}_m${use_max_norm}_w${use_confidence_weight}/max_feedback${max_feedback}_feed_type${feed_type}_n${reward_batch}_l${segment}_g${teacher_gamma}_b${teacher_betas}_m${teacher_eps_mistake}_s${teacher_eps_skip}_e${teacher_eps_equal}/seed${seed}/
