@@ -1,75 +1,69 @@
-# MCP
-Official Implementation of [MCP (Mixing Corrupted Preferences)](https://www.sciencedirect.com/science/article/pii/S0950705124014588) (Knowledge-Based Systems). 
-<p align="center"><img src="./pngs/MCP.png" width="900" height="450"></p>
+# TriTrust-PBRL (TTP)
 
-## Human Evaluation Results
-### DMControl Walker : PEBBLE(Left) and MCP(Right)
-<p align="center">
-  <img src="./videos/pebble.gif" align="center" width="32%">
-  <img src="./videos/mcp.gif" align="center" width="32%">
-</p>
+Official implementation of **TriTrust-PBRL (TTP)** from *Trust, Don't Trust, or Flip: Robust Preference-Based Reinforcement Learning with Multi-Expert Feedback*.
+
+TTP jointly learns a shared reward model and expert-specific trust parameters from multi-expert preference feedback. During training, each trust parameter evolves toward:
+
+- **positive** → trust (reliable expert)
+- **near zero** → down-weight (noisy expert)
+- **negative** → invert (systematically adversarial expert)
+
+This lets the method recover useful signal from anti-aligned annotators instead of discarding them.
+
+## Environments
+
+Policy-learning experiments follow the paper and cover:
+
+| Domain | Environment ID | Metric |
+|---|---|---|
+| DM Control | `cheetah_run` | true episode return |
+| DM Control | `walker_walk` | true episode return |
+| MetaWorld | `metaworld_door-open-v2` | success rate |
+| MetaWorld | `metaworld_sweep-into-v2` | success rate |
+
+Multi-expert teachers use B-Pref-style rationalities \(\beta_k \in \{-1, 0, 1\}\):
+
+- `1`: reliable
+- `0`: noisy / random
+- `-1`: adversarial (preference flip)
+
+Principal mixtures in the paper: adversarial `teacher_betas=[1,1,1,-1]` and noisy `teacher_betas=[1,1,1,0]`.
+
+## Installation (Docker)
+
+The recommended setup uses the prepared `dockerfile` and `docker-compose.yml` (PyTorch 1.11 + CUDA 11.3, MuJoCo 2.1.0, MetaWorld v2.0.0, and project dependencies).
+
+### Requirements
+
+- Docker
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) (for GPU)
+
+### Build and start
 
 ```bash
-for seed in 12345 23451 34512 45123 51234 67890 78906 89067 90678 6789; do
-# PEBBLE
-python train_PEBBLE_human.py env=walker_walk seed=$seed agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=500000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 \
-    num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 \
-    teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
-
-# MCP
-python train_PEBBLE_mixup_human.py env=walker_walk seed=$seed agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=500000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 \
-    num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 \
-    teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
-done
+# from the repository root
+docker compose build
+docker compose up -d
+docker compose exec mixture_pbrl bash
 ```
 
-## How to Install
+Inside the container the project is mounted at `/workspace` with `MUJOCO_GL=egl`.
 
-### Docker Setting and Install Mujoco 2.1.0
+Equivalent manual Docker run:
 
 ```bash
-# run docker container
-docker run -it -d --shm-size=32g --gpus=all -v /your/drive/location:/mnt/hdd/workspace --name MCP pytorch/pytorch:1.11.0-cuda11.3-cudnn8-runtime
-apt-get update
-apt-get install sudo
-sudo apt update
-cd ../mnt/hdd/workspace
-
-# install mujoco
-wget https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz
-mkdir /root/.mujoco
-tar -xvzf mujoco210-linux-x86_64.tar.gz -C /root/.mujoco
-sudo apt install libglew-dev libgl-dev
-
-# for human label display online
-apt-get install -y qt5-default libxcb-xinerama0-dev
-pip install PyQt5==5.14.2
-
-# copy and paste following commands into /root/.bashrc
-export LD_LIBRARY_PATH=/root/.mujoco/mujoco210/bin
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia
-export PATH="$LD_LIBRARY_PATH:$PATH"
-export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:/usr/lib/x86_64-linux-gnu/libGLEW.so
-
-cd root
-source .bashrc
-
-sudo apt-get install python3-dev build-essential libssl-dev libffi-dev libxml2-dev
-sudo apt install libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf libegl1 libopengl0
-
-sudo apt-get install libxslt1-dev zlib1g-dev python3-pip
-
-conda install git
-git clone https://github.com/openai/mujoco-py
-cd mujoco-py
-pip install -r requirements.txt
-pip install -r requirements.dev.txt
-
-pip3 install -e . --no-cache
+docker build -f dockerfile -t mixture_pbrl .
+docker run -it --rm --gpus all --shm-size=16g \
+  -e MUJOCO_GL=egl \
+  -v "$(pwd)":/workspace \
+  -w /workspace \
+  --name mixture_pbrl_container \
+  mixture_pbrl bash
 ```
 
-### Install Dependencies
-Python 3.8.12
+### Manual install (optional)
+
+If you prefer a local environment (Python 3.8), mirror the Dockerfile steps: install MuJoCo 2.1.0 / `mujoco-py`, then:
 
 ```bash
 pip install mujoco==2.3.5
@@ -78,78 +72,93 @@ pip install dm_control==1.0.12
 pip install git+https://github.com/denisyarats/dmc2gym.git
 pip install tensorboard termcolor pybullet scikit-image
 pip install hydra-core==1.0.4
+pip install transformers==4.32.0
 pip install "cython<3"
-```
 
-## Note
-### Metaworld Dependency
-```bash
 wget https://github.com/Farama-Foundation/Metaworld/archive/refs/tags/v2.0.0.tar.gz
 tar -xvzf v2.0.0.tar.gz
 cd Metaworld-2.0.0
-pip install metaworld -e .
+pip install .
 ```
 
-### Hydra Dependency
-We used hydra with current version of 1.0.4, while original [B-Pref](https://github.com/rll-research/BPref) used version 0.x.
-We slightly modified hydra configuration in **config** folder and *hydra.main()* args in all **train_x.py**. It does not affect the experiment, but only affect compatibility for hydra version.
-For more details, please refer to [hydra config path changes](https://hydra.cc/docs/upgrades/0.11_to_1.0/config_path_changes/)
+### Hydra note
+
+This repo uses Hydra `1.0.4` (B-Pref originally used `0.x`). Config paths and `@hydra.main` arguments were adjusted accordingly; see [Hydra config path changes](https://hydra.cc/docs/upgrades/0.11_to_1.0/config_path_changes/).
 
 ## How to run
 
-### DMControl(Walker)
-#### PEBBLE
+Run commands from the repository root (inside the Docker container if using Docker). Prepared shell scripts live under `scripts/<env>/`.
+
+### TriTrust-PBRL (TTP)
+
+Main entrypoint: `train_PEBBLE_mixture.py` (config `train_PEBBLE_mixture_alpha_sum_log_over`).
+
+#### MetaWorld Sweep-Into (adversarial)
+
 ```bash
-python train_PEBBLE.py env=walker_walk agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=1000000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+bash scripts/sweep_into/run_pebble_mixture_b\[1,1,1,-1\].sh
+# or a single seed:
+python train_PEBBLE_mixture.py env=metaworld_sweep-into-v2 seed=12345 \
+  agent.params.actor_lr=0.0003 agent.params.critic_lr=0.0003 activation=tanh \
+  num_unsup_steps=9000 num_train_steps=1000000 agent.params.batch_size=512 \
+  double_q_critic.params.hidden_dim=256 double_q_critic.params.hidden_depth=3 \
+  diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3 \
+  reward_update=10 num_interact=5000 max_feedback=40000 reward_batch=50 \
+  feed_type=6 teacher_betas=[1,1,1,-1]
 ```
 
-#### MCP
+#### MetaWorld Sweep-Into (noisy)
+
 ```bash
-python train_PEBBLE_mixup.py env=walker_walk agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=1000000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+bash scripts/sweep_into/run_pebble_mixture_b\[1,1,1,0\].sh
 ```
 
-#### SURF
+#### MetaWorld Door-Open (adversarial)
+
 ```bash
-python train_PEBBLE_semi.py env=walker_walk agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=1000000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 threshold_u=0.99 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+bash scripts/door_open/run_pebble_mixture_b\[1,1,1,-1\].sh
 ```
 
-#### SURF + MCP
+#### DM Control Cheetah-Run (adversarial / noisy)
+
 ```bash
-python train_PEBBLE_semi_mixup.py env=walker_walk agent.params.actor_lr=0.0005 agent.params.critic_lr=0.0005 num_train_steps=1000000 agent.params.batch_size=1024 double_q_critic.params.hidden_dim=1024 double_q_critic.params.hidden_depth=2 diag_gaussian_actor.params.hidden_dim=1024 diag_gaussian_actor.params.hidden_depth=2 num_unsup_steps=9000 reward_batch=10 num_interact=20000 max_feedback=100 feed_type=1 reward_update=50 reset_update=100 threshold_u=0.99 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+bash scripts/cheetah_run/run_pebble_mixture_b\[1,1,1,-1\].sh
+bash scripts/cheetah_run/run_pebble_mixture_b\[1,1,1,0\].sh
 ```
 
-### Metaworld(Sweep Into)
-#### PEBBLE
+#### DM Control Walker-Walk (feedback-budget study)
+
 ```bash
-python train_PEBBLE.py env=metaworld_sweep-into-v2 agent.params.actor_lr=0.0003 agent.params.critic_lr=0.0003  num_train_steps=1000000 agent.params.batch_size=512 double_q_critic.params.hidden_dim=256 double_q_critic.params.hidden_depth=3 diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3 num_unsup_steps=9000 reward_batch=50 num_interact=5000 max_feedback=10000 feed_type=1 reward_update=10 reset_update=100 segment=25 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+# example: 5000 feedback, mixture [1,1,1,-1,-1]
+bash scripts/walker_walk/5000/run_pebble_mixture_b\[1,1,1,-1,-1\].sh
 ```
 
-#### MCP
-```bash
-python train_PEBBLE_mixup.py env=metaworld_sweep-into-v2 agent.params.actor_lr=0.0003 agent.params.critic_lr=0.0003  num_train_steps=1000000 agent.params.batch_size=512 double_q_critic.params.hidden_dim=256 double_q_critic.params.hidden_depth=3 diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3 num_unsup_steps=9000 reward_batch=50 num_interact=5000 max_feedback=10000 feed_type=1 reward_update=10 reset_update=100 segment=25 mixup_alpha=0.5 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
-```
+### Baselines
 
-#### SURF
-```bash
-python train_PEBBLE_semi.py env=metaworld_sweep-into-v2 agent.params.actor_lr=0.0003 agent.params.critic_lr=0.0003  num_train_steps=1000000 agent.params.batch_size=512 double_q_critic.params.hidden_dim=256 double_q_critic.params.hidden_depth=3 diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3 num_unsup_steps=9000 reward_batch=50 num_interact=5000 max_feedback=10000 feed_type=1 reward_update=10 reset_update=100 segment=25 threshold_u=0.999 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
-```
+| Method | Script / entrypoint |
+|---|---|
+| PEBBLE | `train_PEBBLE.py` / `scripts/*/run_pebble*.sh` |
+| MCP | `train_PEBBLE_mixup.py` or `train_PEBBLE_mixup_mixture.py` |
+| RIME | `train_RIME_mixture.py` / `scripts/*/run_rime_mixture*.sh` |
+| Oracle SAC | `train_SAC.py` / `scripts/*/run_sac.sh` |
 
-#### SURF + MCP
+Example baseline scripts for Sweep-Into under adversarial experts:
+
 ```bash
-python train_PEBBLE_semi_mixup.py env=metaworld_sweep-into-v2 agent.params.actor_lr=0.0003 agent.params.critic_lr=0.0003  num_train_steps=1000000 agent.params.batch_size=512 double_q_critic.params.hidden_dim=256 double_q_critic.params.hidden_depth=3 diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3 num_unsup_steps=9000 reward_batch=50 num_interact=5000 max_feedback=10000 feed_type=1 reward_update=10 reset_update=100 segment=25 mixup_alpha=0.5 threshold_u=0.999 teacher_beta=-1 teacher_gamma=1 teacher_eps_skip=0 teacher_eps_mistake=0 teacher_eps_equal=0
+bash scripts/sweep_into/run_pebble_mixup_mixture_b\[1,1,1,-1\].sh   # MCP
+bash scripts/sweep_into/run_rime_mixture_b\[1,1,1,-1\].sh           # RIME
 ```
 
 ## Acknowledgement
-Our implementation benefits from the official codebase of [B-Pref](https://github.com/rll-research/BPref), [SURF](https://github.com/alinlab/SURF), [RUNE](https://github.com/rll-research/rune), [MRN](https://github.com/RyanLiu112/MRN), [QPA](https://github.com/huxiao09/QPA) and [RIME](https://github.com/CJReinforce/RIME_ICML2024?tab=readme-ov-file). We appreciate their insightful works.
+
+This implementation builds on the official codebases of [B-Pref](https://github.com/rll-research/BPref), [PEBBLE](https://github.com/rll-research/BPref), [SURF](https://github.com/alinlab/SURF), [RUNE](https://github.com/rll-research/rune), [MRN](https://github.com/RyanLiu112/MRN), [QPA](https://github.com/huxiao09/QPA), [RIME](https://github.com/CJReinforce/RIME_ICML2024), and [MCP](https://github.com/JongkookHeo/MCP).
 
 ## Citation
-```latex
-@article{heo2024mixing,
-  title={Mixing Corrupted Preferences for Robust and Feedback-Efficient Preference-Based Reinforcement Learning},
-  author={Heo, Jongkook and Lee, Young Jae and Kim, Jaehoon and Kwak, Min Gu and Park, Young Joon and Kim, Seoung Bum},
-  journal={Knowledge-Based Systems},
-  pages={112824},
-  year={2024},
-  publisher={Elsevier}
+
+```bibtex
+@article{hosseini2025tritrust,
+  title={Trust, Don't Trust, or Flip: Robust Preference-Based Reinforcement Learning with Multi-Expert Feedback},
+  author={Hosseini, Seyed Amir and Abdolali, Maryam and Tavakkoli, Amirhosein and Ayar, Fardin and Javanmardi, Ehsan and Tsukada, Manabu and Javanmardi, Mahdi},
+  year={2025}
 }
 ```
