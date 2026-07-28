@@ -50,7 +50,7 @@ ABLATION_VARIANTS: Sequence[AblationVariant] = (
 )
 
 DEFAULT_SEEDS = [12345, 23451, 34512, 45123, 51234]
-DEFAULT_TEACHER_BETAS = [1, 1, 1, 0, 0]  # 3R1N1A
+DEFAULT_TEACHER_BETAS = [1, 1, 1, 0, 0]  # 3R2N
 ENV_NAME = "metaworld_door-open-v2"
 
 

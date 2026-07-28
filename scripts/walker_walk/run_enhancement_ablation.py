@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
+ 
 """Ablation of TriTrust-PBRL practical enhancements on Walker-Walk.
 
 Mirrors Table ``enhancement-ablation`` in ``main_v2.tex`` (Section
