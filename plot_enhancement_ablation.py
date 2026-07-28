@@ -13,6 +13,7 @@ Example
 -------
   python plot_enhancement_ablation.py
   python plot_enhancement_ablation.py --root exp_pebble_mixture_ablation --env walker_walk
+  python plot_enhancement_ablation.py --env metaworld_door-open-v2
   python plot_enhancement_ablation.py --metric episode_reward --ci std --smooth 3
 """
 
@@ -309,9 +310,16 @@ def _pretty_metric(metric: str) -> str:
     return {
         "true_episode_reward": "True episode return",
         "episode_reward": "Episode return (learned reward)",
+        "success_rate": "Success rate (%)",
         "actor_loss": "Actor loss",
         "critic_loss": "Critic loss",
     }.get(metric, metric.replace("_", " ").title())
+
+
+def default_metric_for_env(env: str) -> str:
+    if "metaworld" in env.lower():
+        return "success_rate"
+    return "true_episode_reward"
 
 
 def _backbone_label(meta: VariantMeta) -> str:
@@ -577,8 +585,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--env", default="walker_walk")
     p.add_argument(
         "--metric",
-        default="true_episode_reward",
-        help="Column in eval.csv (default: true_episode_reward)",
+        default=None,
+        help="Column in eval.csv (default: success_rate for MetaWorld, else true_episode_reward)",
     )
     p.add_argument(
         "--ci",
@@ -613,6 +621,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.metric is None:
+        args.metric = default_metric_for_env(args.env)
     apply_style()
 
     repo = os.path.dirname(os.path.abspath(__file__))
