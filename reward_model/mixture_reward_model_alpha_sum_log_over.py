@@ -291,7 +291,7 @@ class MixtureRewardModel(RewardModel):
                 # cur_loss = trust_weight * data_coverage_penalty * cur_loss
                 alphas_tan = torch_tanh(self.alphas)
                 alphas_tan_abs_sum = alphas_tan.abs().sum()
-                cur_loss =cur_loss * alphas_m_tan.abs() / (alphas_tan_abs_sum + 1e-8) * len(self.reward_models)
+                cur_loss = cur_loss * alphas_m_tan.abs() / (alphas_tan_abs_sum + 1e-8) * len(self.reward_models)
                 cur_loss = cur_loss.mean()
                 loss += cur_loss
                 ensemble_losses[m].append(loss.item())

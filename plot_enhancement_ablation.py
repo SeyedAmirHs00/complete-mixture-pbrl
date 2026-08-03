@@ -35,13 +35,14 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FOLDER_RE = re.compile(
-    r"ablation_t(?P<tanh>True|False)_m(?P<maxn>True|False)_w(?P<wk>True|False)$"
+    r"ablation_t(?P<tanh>True|False)_m(?P<maxn>True|False)_w(?P<wk>True|False)"
+    r"(?:_wa(?P<wa>True|False))?$"
 )
 
 
 @dataclass(frozen=True)
 class VariantMeta:
-    key: str  # folder suffix flags, e.g. tTrue_mTrue_wTrue
+    key: str  # folder suffix flags, e.g. tTrue_mTrue_wTrue_waTrue
     label: str
     short: str
     color: str
@@ -50,27 +51,41 @@ class VariantMeta:
     use_tanh: bool
     use_max_norm: bool
     use_confidence_weight: bool
+    use_confidence_weight_in_alpha: bool = True
 
 
 # Colour-blind friendly palette; Full TTP highlighted.
-VARIANT_META: Dict[Tuple[bool, bool, bool], VariantMeta] = {
-    (False, False, False): VariantMeta(
-        "tFalse_mFalse_wFalse", "Raw", "Raw", "#7A7A7A", "--", 0, False, False, False
+# Key: (tanh, max_norm, w_k, w_k_in_alpha)
+VARIANT_META: Dict[Tuple[bool, bool, bool, bool], VariantMeta] = {
+    (False, False, False, True): VariantMeta(
+        "tFalse_mFalse_wFalse_waTrue", "Raw", "Raw", "#7A7A7A", "--", 0, False, False, False, True
     ),
-    (True, False, False): VariantMeta(
-        "tTrue_mFalse_wFalse", "+Tanh", "+Tanh", "#4C78A8", "-", 1, True, False, False
+    (True, False, False, True): VariantMeta(
+        "tTrue_mFalse_wFalse_waTrue", "+Tanh", "+Tanh", "#4C78A8", "-", 1, True, False, False, True
     ),
-    (True, True, False): VariantMeta(
-        "tTrue_mTrue_wFalse", "+Tanh, +Max-norm", "+Tanh+Max", "#F58518", "-", 2, True, True, False
+    (True, True, False, True): VariantMeta(
+        "tTrue_mTrue_wFalse_waTrue", "+Tanh, +Max-norm", "+Tanh+Max", "#F58518", "-", 2, True, True, False, True
     ),
-    (True, True, True): VariantMeta(
-        "tTrue_mTrue_wTrue", "Full TTP", "Full TTP", "#E45756", "-", 3, True, True, True
+    (True, True, True, True): VariantMeta(
+        "tTrue_mTrue_wTrue_waTrue", "Full TTP", "Full TTP", "#E45756", "-", 3, True, True, True, True
     ),
-    (True, False, True): VariantMeta(
-        "tTrue_mFalse_wTrue", "w/o Max-norm", "w/o Max", "#54A24B", "-.", 4, True, False, True
+    (True, True, True, False): VariantMeta(
+        "tTrue_mTrue_wTrue_waFalse",
+        "w_k reward-only",
+        "w_k rew",
+        "#FF9DA6",
+        ":",
+        3,
+        True,
+        True,
+        True,
+        False,
     ),
-    (False, True, True): VariantMeta(
-        "tFalse_mTrue_wTrue", "w/o Tanh", "w/o Tanh", "#B279A2", "-.", 5, False, True, True
+    (True, False, True, True): VariantMeta(
+        "tTrue_mFalse_wTrue_waTrue", "w/o Max-norm", "w/o Max", "#54A24B", "-.", 4, True, False, True, True
+    ),
+    (False, True, True, True): VariantMeta(
+        "tFalse_mTrue_wTrue_waTrue", "w/o Tanh", "w/o Tanh", "#B279A2", "-.", 5, False, True, True, True
     ),
 }
 
@@ -79,10 +94,18 @@ def parse_variant_folder(name: str) -> Optional[VariantMeta]:
     m = FOLDER_RE.match(name)
     if not m:
         return None
+    wk = m.group("wk") == "True"
+    # Old folders omit _wa; treat as coupled alpha grads (wa=True).
+    wa_group = m.group("wa")
+    wa = True if wa_group is None else (wa_group == "True")
+    # If w_k is off, wa is irrelevant; normalize to True for lookup.
+    if not wk:
+        wa = True
     flags = (
         m.group("tanh") == "True",
         m.group("maxn") == "True",
-        m.group("wk") == "True",
+        wk,
+        wa,
     )
     return VARIANT_META.get(flags)
 
@@ -338,7 +361,17 @@ def matched_w_pairs(
     by_backbone: Dict[Tuple[bool, bool], Dict[bool, VariantMeta]] = {}
     for m in metas:
         key = (m.use_tanh, m.use_max_norm)
-        by_backbone.setdefault(key, {})[m.use_confidence_weight] = m
+        slot = by_backbone.setdefault(key, {})
+        if m.use_confidence_weight:
+            # Prefer full TTP (w_k also in alpha loss) over reward-only.
+            existing = slot.get(True)
+            if existing is None or (
+                m.use_confidence_weight_in_alpha
+                and not existing.use_confidence_weight_in_alpha
+            ):
+                slot[True] = m
+        else:
+            slot[False] = m
 
     pairs = []
     for (tanh, maxn), d in sorted(by_backbone.items(), key=lambda kv: (kv[0][0], kv[0][1])):
@@ -560,6 +593,7 @@ def build_summary_table(
                 "tanh": meta.use_tanh,
                 "max_norm": meta.use_max_norm,
                 "w_k": meta.use_confidence_weight,
+                "w_k_in_alpha": meta.use_confidence_weight_in_alpha,
                 "n_seeds": len(seed_finals),
                 "final_mean": float(np.mean(seed_finals)),
                 "final_std": float(np.std(seed_finals, ddof=1))

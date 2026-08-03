@@ -49,6 +49,8 @@ class MixtureRewardModel(RewardModel):
       - use_tanh:           ``\\tilde{\\alpha}_k = tanh(\\alpha_k)``
       - use_max_norm:       ``\\bar{\\alpha}_k = \\tilde{\\alpha}_k / max|\\tilde{\\alpha}|``
       - use_confidence_weight: ``w_k = K|\\tilde{\\alpha}_k| / sum|\\tilde{\\alpha}|``
+      - use_confidence_weight_in_alpha: if False, detach ``w_k`` so it weights
+        the reward CE loss but does not contribute gradients to ``\\alpha``
     """
 
     def __init__(
@@ -72,6 +74,7 @@ class MixtureRewardModel(RewardModel):
         use_tanh=True,
         use_max_norm=True,
         use_confidence_weight=True,
+        use_confidence_weight_in_alpha=True,
     ):
         if reward_models is None:
             reward_models = [
@@ -116,6 +119,7 @@ class MixtureRewardModel(RewardModel):
         self.use_tanh = bool(use_tanh)
         self.use_max_norm = bool(use_max_norm)
         self.use_confidence_weight = bool(use_confidence_weight)
+        self.use_confidence_weight_in_alpha = bool(use_confidence_weight_in_alpha)
 
         super().__init__(
             ds,
@@ -307,6 +311,9 @@ class MixtureRewardModel(RewardModel):
 
                 if self.use_confidence_weight:
                     w_m = self._confidence_weights(tilde_all, expert_inds)
+                    # Detach so w_k scales reward CE without flowing grads into alpha.
+                    if not self.use_confidence_weight_in_alpha:
+                        w_m = w_m.detach()
                     cur_loss = cur_loss * w_m
 
                 cur_loss = cur_loss.mean()

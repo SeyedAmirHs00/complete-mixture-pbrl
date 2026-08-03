@@ -11,6 +11,7 @@ Mirrors Table ``enhancement-ablation`` in ``main_v2.tex`` (Section
   +Tanh               : tanh only
   +Tanh,+Max-norm     : tanh + max-norm  (same as w/o w_k)
   Full TTP            : tanh + max-norm + w_k
+  w_k reward-only     : tanh + max-norm + w_k in reward CE (detached from alpha)
   w/o Max-norm        : tanh + w_k
   w/o Tanh            : max-norm + w_k
 
@@ -34,17 +35,27 @@ class AblationVariant:
     use_tanh: bool
     use_max_norm: bool
     use_confidence_weight: bool
+    use_confidence_weight_in_alpha: bool = True
     note: str = ""
 
 
-# Matches Table enhancement-ablation in main_v2.tex (unique rows).
+# Matches Table enhancement-ablation in main_v2.tex (unique rows), plus
+# wk_reward_only (w_k scales reward CE but is detached from alpha grads).
 ABLATION_VARIANTS: Sequence[AblationVariant] = (
-    AblationVariant("raw", False, False, False, "no enhancements"),
-    AblationVariant("tanh", True, False, False, "+Tanh"),
-    AblationVariant("tanh_maxn", True, True, False, "+Tanh,+Max-norm / w/o w_k"),
-    AblationVariant("full_ttp", True, True, True, "Full TTP"),
-    AblationVariant("wo_maxn", True, False, True, "w/o Max-norm"),
-    AblationVariant("wo_tanh", False, True, True, "w/o Tanh"),
+    AblationVariant("raw", False, False, False, note="no enhancements"),
+    AblationVariant("tanh", True, False, False, note="+Tanh"),
+    AblationVariant("tanh_maxn", True, True, False, note="+Tanh,+Max-norm / w/o w_k"),
+    AblationVariant("full_ttp", True, True, True, note="Full TTP"),
+    AblationVariant(
+        "wk_reward_only",
+        True,
+        True,
+        True,
+        False,
+        note="w_k in reward loss only (detached from alpha)",
+    ),
+    AblationVariant("wo_maxn", True, False, True, note="w/o Max-norm"),
+    AblationVariant("wo_tanh", False, True, True, note="w/o Tanh"),
 )
 
 DEFAULT_SEEDS = [12345, 23451, 34512, 45123, 51234]
@@ -86,6 +97,7 @@ def build_cmd(
         f"use_tanh={str(variant.use_tanh).lower()}",
         f"use_max_norm={str(variant.use_max_norm).lower()}",
         f"use_confidence_weight={str(variant.use_confidence_weight).lower()}",
+        f"use_confidence_weight_in_alpha={str(variant.use_confidence_weight_in_alpha).lower()}",
     ]
 
 
@@ -154,9 +166,10 @@ def main() -> int:
         flags = (
             f"tanh={int(v.use_tanh)} "
             f"maxn={int(v.use_max_norm)} "
-            f"wk={int(v.use_confidence_weight)}"
+            f"wk={int(v.use_confidence_weight)} "
+            f"wa={int(v.use_confidence_weight_in_alpha)}"
         )
-        print(f"    - {v.name:12s} [{flags}]  ({v.note})")
+        print(f"    - {v.name:14s} [{flags}]  ({v.note})")
 
     failures = []
     for variant in selected:

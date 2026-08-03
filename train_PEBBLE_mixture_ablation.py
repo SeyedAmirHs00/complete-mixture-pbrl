@@ -22,7 +22,8 @@ class Workspace(object):
             "ablation flags: "
             f"use_tanh={cfg.use_tanh}, "
             f"use_max_norm={cfg.use_max_norm}, "
-            f"use_confidence_weight={cfg.use_confidence_weight}"
+            f"use_confidence_weight={cfg.use_confidence_weight}, "
+            f"use_confidence_weight_in_alpha={cfg.use_confidence_weight_in_alpha}"
         )
 
         self.cfg = cfg
@@ -98,6 +99,7 @@ class Workspace(object):
             use_tanh=cfg.use_tanh,
             use_max_norm=cfg.use_max_norm,
             use_confidence_weight=cfg.use_confidence_weight,
+            use_confidence_weight_in_alpha=cfg.use_confidence_weight_in_alpha,
         )
 
     def evaluate(self):
