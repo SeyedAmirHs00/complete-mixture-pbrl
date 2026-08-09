@@ -54,7 +54,7 @@ ABLATION_VARIANTS: Sequence[AblationVariant] = (
 )
 
 DEFAULT_SEEDS = [12345, 23451, 34512, 45123, 51234]
-DEFAULT_TEACHER_BETAS = [1, 1, 1, -1] #3R2N
+DEFAULT_TEACHER_BETAS = [1, 1, 1, 0] #3R2N
 
 
 def build_cmd(
@@ -133,7 +133,7 @@ def parse_args() -> argparse.Namespace:
         choices=[v.name for v in ABLATION_VARIANTS],
         help="Subset of ablation variants to run",
     )
-    parser.add_argument("--max-feedback", type=int, default=20000)
+    parser.add_argument("--max-feedback", type=int, default=40000)
     parser.add_argument("--reward-batch", type=int, default=50)
     parser.add_argument("--num-train-steps", type=int, default=1000000)
     parser.add_argument("--device", type=str, default="cuda")

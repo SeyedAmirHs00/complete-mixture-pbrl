@@ -16,6 +16,7 @@ Example
   python plot_enhancement_ablation.py --env metaworld_sweep-into-v2
   python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 20000
   python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 40000
+  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --teacher-betas 1 1 1 0
   python plot_enhancement_ablation.py --metric episode_reward --ci std --smooth 3
 """
 
@@ -41,6 +42,13 @@ FOLDER_RE = re.compile(
     r"(?:_wa(?P<wa>True|False))?$"
 )
 FEEDBACK_RE = re.compile(r"^max_feedback(?P<fb>\d+)_")
+TEACHER_BETAS_RE = re.compile(r"_b\[(?P<betas>[^\]]+)\]_")
+
+DEFAULT_TEACHER_BETAS: Dict[str, List[float]] = {
+    "walker_walk": [1, 1, 1, 0, -1],  # 3R1N1A
+    "metaworld_sweep-into-v2": [1, 1, 1, 0],  # 3R1A
+    "door_open": [1, 1, 1, -1],  # 3R1A adversarial
+}
 
 
 @dataclass(frozen=True)
@@ -118,7 +126,48 @@ def parse_variant_folder(name: str) -> Optional[VariantMeta]:
 # ---------------------------------------------------------------------------
 
 
-def list_feedback_runs(variant_dir: str) -> Dict[int, List[str]]:
+def normalize_teacher_betas(betas: Sequence[float]) -> Tuple[float, ...]:
+    return tuple(float(b) for b in betas)
+
+
+def parse_teacher_betas_from_run_name(name: str) -> Optional[Tuple[float, ...]]:
+    m = TEACHER_BETAS_RE.search(name)
+    if not m:
+        return None
+    parts = [p.strip() for p in m.group("betas").split(",") if p.strip()]
+    return tuple(float(p) for p in parts)
+
+
+def teacher_betas_match(name: str, teacher_betas: Sequence[float]) -> bool:
+    parsed = parse_teacher_betas_from_run_name(name)
+    if parsed is None:
+        return False
+    return parsed == normalize_teacher_betas(teacher_betas)
+
+
+def _format_beta_value(b: float) -> str:
+    ib = int(b)
+    return str(ib) if b == ib else str(b)
+
+
+def format_teacher_betas_tag(teacher_betas: Sequence[float]) -> str:
+    return "[" + ", ".join(_format_beta_value(b) for b in teacher_betas) + "]"
+
+
+def default_teacher_betas_for_env(env: str) -> Optional[List[float]]:
+    if env in DEFAULT_TEACHER_BETAS:
+        return list(DEFAULT_TEACHER_BETAS[env])
+    env_lower = env.lower()
+    for key, betas in DEFAULT_TEACHER_BETAS.items():
+        if key in env_lower or env_lower in key:
+            return list(betas)
+    return None
+
+
+def list_feedback_runs(
+    variant_dir: str,
+    teacher_betas: Optional[Sequence[float]] = None,
+) -> Dict[int, List[str]]:
     """Map max_feedback → list of config run dirs under a variant folder."""
     found: Dict[int, List[str]] = {}
     if not os.path.isdir(variant_dir):
@@ -130,6 +179,8 @@ def list_feedback_runs(variant_dir: str) -> Dict[int, List[str]]:
         m = FEEDBACK_RE.match(name)
         if not m:
             continue
+        if teacher_betas is not None and not teacher_betas_match(name, teacher_betas):
+            continue
         fb = int(m.group("fb"))
         found.setdefault(fb, []).append(path)
     return found
@@ -137,10 +188,11 @@ def list_feedback_runs(variant_dir: str) -> Dict[int, List[str]]:
 
 def discover_feedback_budgets(
     variants: Sequence[Tuple[VariantMeta, str]],
+    teacher_betas: Optional[Sequence[float]] = None,
 ) -> List[int]:
     budgets = set()
     for _, vdir in variants:
-        budgets.update(list_feedback_runs(vdir).keys())
+        budgets.update(list_feedback_runs(vdir, teacher_betas=teacher_betas).keys())
     return sorted(budgets)
 
 
@@ -148,17 +200,26 @@ def find_csv_files(
     variant_dir: str,
     csv_name: str,
     max_feedback: Optional[int] = None,
+    teacher_betas: Optional[Sequence[float]] = None,
 ) -> List[str]:
     """Find non-empty ``{csv_name}.csv`` under a variant.
 
     If ``max_feedback`` is set, only search matching ``max_feedbackN_*`` run
-    folders so different feedback budgets are not mixed.
+    folders so different feedback budgets are not mixed. When ``teacher_betas``
+    is set, only runs whose folder encodes the same expert rationalities are
+    included (Hydra ``_b[...]_`` suffix).
     """
+    feedback_runs = list_feedback_runs(variant_dir, teacher_betas=teacher_betas)
     search_roots: List[str]
     if max_feedback is None:
-        search_roots = [variant_dir]
+        if teacher_betas is not None:
+            search_roots = [p for runs in feedback_runs.values() for p in runs]
+            if not search_roots:
+                return []
+        else:
+            search_roots = [variant_dir]
     else:
-        runs = list_feedback_runs(variant_dir).get(max_feedback, [])
+        runs = feedback_runs.get(max_feedback, [])
         if not runs:
             return []
         search_roots = runs
@@ -822,6 +883,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--teacher-betas",
+        type=float,
+        nargs="+",
+        default=None,
+        help=(
+            "Expert rationalities; filters run folders by _b[...]_ suffix "
+            "(default: env-specific, e.g. walker_walk → 1 1 1 0 -1, "
+            "metaworld_sweep-into-v2 → 1 1 1 0)"
+        ),
+    )
+    p.add_argument(
         "--ci",
         choices=("sem", "std", "none"),
         default="sem",
@@ -861,6 +933,7 @@ def plot_one_feedback_budget(
     variants: Sequence[Tuple[VariantMeta, str]],
     *,
     max_feedback: Optional[int],
+    teacher_betas: Optional[Sequence[float]],
     out_dir: str,
     env: str,
     metric: str,
@@ -872,13 +945,18 @@ def plot_one_feedback_budget(
 ) -> bool:
     """Build all figures for one feedback budget. Returns True if anything was plotted."""
     fb_tag = f"max_feedback={max_feedback}" if max_feedback is not None else "all feedbacks"
-    title_suffix = (
-        f"{env} (max_feedback={max_feedback})"
-        if max_feedback is not None
-        else env
+    beta_tag = (
+        f"teacher_betas={format_teacher_betas_tag(teacher_betas)}"
+        if teacher_betas is not None
+        else "all teacher_betas"
     )
+    title_suffix = env
+    if teacher_betas is not None:
+        title_suffix += f" ({format_teacher_betas_tag(teacher_betas)})"
+    if max_feedback is not None:
+        title_suffix += f", max_feedback={max_feedback}"
     os.makedirs(out_dir, exist_ok=True)
-    print(f"\n{'=' * 72}\nPlotting {fb_tag} → {out_dir}\n{'=' * 72}")
+    print(f"\n{'=' * 72}\nPlotting {fb_tag}, {beta_tag} → {out_dir}\n{'=' * 72}")
 
     curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     finals: Dict[VariantMeta, np.ndarray] = {}
@@ -890,12 +968,18 @@ def plot_one_feedback_budget(
     ] = {}
 
     for meta, vdir in variants:
-        if max_feedback is not None and max_feedback not in list_feedback_runs(vdir):
-            print(f"  [{meta.label:18s}] no max_feedback={max_feedback} run — skip")
+        variant_runs = list_feedback_runs(vdir, teacher_betas=teacher_betas)
+        if max_feedback is not None and max_feedback not in variant_runs:
+            print(
+                f"  [{meta.label:18s}] no max_feedback={max_feedback} run "
+                f"for {beta_tag} — skip"
+            )
             continue
 
         if not alphas_only:
-            eval_files = find_csv_files(vdir, "eval", max_feedback=max_feedback)
+            eval_files = find_csv_files(
+                vdir, "eval", max_feedback=max_feedback, teacher_betas=teacher_betas
+            )
             if not eval_files:
                 print(f"  [{meta.label}] no eval.csv — skipping eval")
             else:
@@ -916,7 +1000,9 @@ def plot_one_feedback_budget(
                 )
 
         if not skip_reward:
-            reward_files = find_csv_files(vdir, "reward", max_feedback=max_feedback)
+            reward_files = find_csv_files(
+                vdir, "reward", max_feedback=max_feedback, teacher_betas=teacher_betas
+            )
             if not reward_files:
                 print(f"  [{meta.label}] no reward.csv — skipping reward metrics")
                 continue
@@ -976,8 +1062,12 @@ def plot_one_feedback_budget(
             last_n=last_n,
         )
         table = build_summary_table(curves, finals, last_n)
+        if teacher_betas is not None:
+            table.insert(1, "teacher_betas", format_teacher_betas_tag(teacher_betas))
         if max_feedback is not None:
-            table.insert(1, "max_feedback", max_feedback)
+            table.insert(
+                2 if teacher_betas is not None else 1, "max_feedback", max_feedback
+            )
         table_path = os.path.join(out_dir, f"summary_{metric}.csv")
         table.to_csv(table_path, index=False, float_format="%.4f")
         print(f"Saved {table_path}")
@@ -1018,6 +1108,8 @@ def main() -> int:
     args = parse_args()
     if args.metric is None:
         args.metric = default_metric_for_env(args.env)
+    if args.teacher_betas is None:
+        args.teacher_betas = default_teacher_betas_for_env(args.env)
     apply_style()
 
     repo = os.path.dirname(os.path.abspath(__file__))
@@ -1029,14 +1121,21 @@ def main() -> int:
     base_out = args.out_dir or os.path.join(
         repo, "results", args.root, args.env, "enhancement_ablation"
     )
+    if args.teacher_betas is not None:
+        beta_slug = "b" + format_teacher_betas_tag(args.teacher_betas).replace(" ", "")
+        base_out = os.path.join(base_out, beta_slug)
 
     variants = collect_variants(env_dir)
     if not variants:
         print(f"No ablation_* folders under {env_dir}")
         return 1
 
-    available = discover_feedback_budgets(variants)
+    available = discover_feedback_budgets(variants, teacher_betas=args.teacher_betas)
     print(f"Found {len(variants)} ablation variants in {env_dir}")
+    if args.teacher_betas is not None:
+        print(f"teacher_betas filter : {format_teacher_betas_tag(args.teacher_betas)}")
+    else:
+        print("teacher_betas filter : (none — all run folders)")
     print(f"Available max_feedback budgets: {available if available else '(none parsed)'}")
 
     if args.max_feedback is not None and len(args.max_feedback) == 0:
@@ -1069,6 +1168,7 @@ def main() -> int:
         ok = plot_one_feedback_budget(
             variants,
             max_feedback=fb,
+            teacher_betas=args.teacher_betas,
             out_dir=out_dir,
             env=args.env,
             metric=args.metric,
