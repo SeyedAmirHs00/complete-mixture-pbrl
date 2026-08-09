@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PEBBLE + TTP mixture training with reward-buffer diagnostics logging.
+"""PEBBLE + TTP mixture training with a one-shot reward-buffer diagnostic.
 
 Identical to ``train_PEBBLE_mixture.py`` except it uses
-``mixture_reward_model_diagnostics.MixtureRewardModel``, which logs
-rms|ΔR|_0 and state-action moments from the reward-model buffers.
+``mixture_reward_model_diagnostics.MixtureRewardModel`` and logs
+rms|ΔR|_0 / SA moments once, immediately after
+``num_seed_steps + num_unsup_steps`` (after the first preference update).
 """
 import numpy as np
 import torch
@@ -276,6 +277,9 @@ class Workspace(object):
                 
                 # first learn reward
                 self.learn_reward(first_flag=1)
+
+                # One-shot buffer / RMS-ΔR snapshot after seed + unsupervised exploration.
+                self.reward_model.log_buffer_diagnostics(self.step)
                 
                 # relabel buffer
                 self.replay_buffer.relabel_with_predictor(self.reward_model)

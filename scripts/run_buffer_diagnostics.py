@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run buffer / RMS-ΔR diagnostics on each paper environment (one seed).
 
-Uses ``train_PEBBLE_mixture_diagnostics.py``, which logs to
-``reward/reward.csv`` under ``exp_pebble_mixture_diagnostics/...``:
+Uses ``train_PEBBLE_mixture_diagnostics.py``, which logs once to
+``reward/reward.csv`` under ``exp_pebble_mixture_diagnostics/...``
+right after ``num_seed_steps + num_unsup_steps`` (first preference update):
 
   rms_delta_r, std_delta_r, var_delta_r, mean_abs_delta_r, n_pairs,
   mean_state_{var,std,second_moment},
