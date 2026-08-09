@@ -13,7 +13,9 @@ Example
 -------
   python plot_enhancement_ablation.py
   python plot_enhancement_ablation.py --root exp_pebble_mixture_ablation --env walker_walk
-  python plot_enhancement_ablation.py --env metaworld_door-open-v2
+  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2
+  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 20000
+  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 40000
   python plot_enhancement_ablation.py --metric episode_reward --ci std --smooth 3
 """
 
@@ -38,6 +40,7 @@ FOLDER_RE = re.compile(
     r"ablation_t(?P<tanh>True|False)_m(?P<maxn>True|False)_w(?P<wk>True|False)"
     r"(?:_wa(?P<wa>True|False))?$"
 )
+FEEDBACK_RE = re.compile(r"^max_feedback(?P<fb>\d+)_")
 
 
 @dataclass(frozen=True)
@@ -115,10 +118,56 @@ def parse_variant_folder(name: str) -> Optional[VariantMeta]:
 # ---------------------------------------------------------------------------
 
 
-def find_csv_files(variant_dir: str, csv_name: str) -> List[str]:
-    pattern = os.path.join(glob.escape(variant_dir), "**", f"{csv_name}.csv")
-    files = sorted(glob.glob(pattern, recursive=True))
-    return [f for f in files if os.path.getsize(f) > 0]
+def list_feedback_runs(variant_dir: str) -> Dict[int, List[str]]:
+    """Map max_feedback → list of config run dirs under a variant folder."""
+    found: Dict[int, List[str]] = {}
+    if not os.path.isdir(variant_dir):
+        return found
+    for name in sorted(os.listdir(variant_dir)):
+        path = os.path.join(variant_dir, name)
+        if not os.path.isdir(path):
+            continue
+        m = FEEDBACK_RE.match(name)
+        if not m:
+            continue
+        fb = int(m.group("fb"))
+        found.setdefault(fb, []).append(path)
+    return found
+
+
+def discover_feedback_budgets(
+    variants: Sequence[Tuple[VariantMeta, str]],
+) -> List[int]:
+    budgets = set()
+    for _, vdir in variants:
+        budgets.update(list_feedback_runs(vdir).keys())
+    return sorted(budgets)
+
+
+def find_csv_files(
+    variant_dir: str,
+    csv_name: str,
+    max_feedback: Optional[int] = None,
+) -> List[str]:
+    """Find non-empty ``{csv_name}.csv`` under a variant.
+
+    If ``max_feedback`` is set, only search matching ``max_feedbackN_*`` run
+    folders so different feedback budgets are not mixed.
+    """
+    search_roots: List[str]
+    if max_feedback is None:
+        search_roots = [variant_dir]
+    else:
+        runs = list_feedback_runs(variant_dir).get(max_feedback, [])
+        if not runs:
+            return []
+        search_roots = runs
+
+    files: List[str] = []
+    for root in search_roots:
+        pattern = os.path.join(glob.escape(root), "**", f"{csv_name}.csv")
+        files.extend(glob.glob(pattern, recursive=True))
+    return sorted(f for f in files if os.path.getsize(f) > 0)
 
 
 def load_seed_series(
@@ -294,7 +343,73 @@ def plot_expert_coefs(
     n_experts: int = 5,
 ) -> None:
     """One subplot per variant: mean expert_coef_k over steps."""
-    metas = sorted(reward_curves.keys(), key=lambda m: m.order)
+    _plot_multichannel_panels(
+        reward_curves,
+        title=title,
+        out_path=out_path,
+        ylabel="expert coef",
+        channel_prefix="expert",
+        n_channels=n_experts,
+    )
+
+
+def plot_alphas(
+    alpha_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]],
+    title: str,
+    out_path: str,
+    n_experts: Optional[int] = None,
+) -> None:
+    """One subplot per variant: mean alpha_k over steps."""
+    if not alpha_curves:
+        return
+    sample = next(iter(alpha_curves.values()))[1]
+    n = n_experts if n_experts is not None else sample.shape[-1]
+    _plot_multichannel_panels(
+        alpha_curves,
+        title=title,
+        out_path=out_path,
+        ylabel=r"$\alpha_k$",
+        channel_prefix=r"$\alpha$",
+        n_channels=n,
+    )
+
+
+def plot_alpha_abs_sum(
+    abs_sum_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray, np.ndarray]],
+    title: str,
+    out_path: str,
+) -> None:
+    """Overlay mean ± band of alpha_abs_sum across ablation variants."""
+    if not abs_sum_curves:
+        return
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    for meta in sorted(abs_sum_curves.keys(), key=lambda m: m.order):
+        x, mean, band = abs_sum_curves[meta]
+        ax.plot(x, mean, color=meta.color, linestyle=meta.linestyle, label=meta.label)
+        ax.fill_between(
+            x, mean - band, mean + band, color=meta.color, alpha=0.18, linewidth=0
+        )
+    ax.set_xlabel("Environment steps")
+    ax.set_ylabel(r"$|\alpha|_1$ (alpha_abs_sum)")
+    ax.set_title(title)
+    ax.legend(frameon=False, loc="best")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+def _plot_multichannel_panels(
+    curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]],
+    title: str,
+    out_path: str,
+    ylabel: str,
+    channel_prefix: str,
+    n_channels: int,
+) -> None:
+    metas = sorted(curves.keys(), key=lambda m: m.order)
     n = len(metas)
     if n == 0:
         return
@@ -307,26 +422,100 @@ def plot_expert_coefs(
     cmap = plt.get_cmap("tab10")
 
     for ax, meta in zip(axes_flat, metas):
-        x, Y = reward_curves[meta]  # Y: (n_seeds, n_steps, n_experts)
+        x, Y = curves[meta]  # Y: (n_seeds, n_steps, n_channels)
         mean = np.nanmean(Y, axis=0)
-        for k in range(n_experts):
-            ax.plot(x, mean[:, k], color=cmap(k), label=f"expert {k}", linewidth=1.6)
+        for k in range(min(n_channels, mean.shape[1])):
+            ax.plot(
+                x,
+                mean[:, k],
+                color=cmap(k),
+                label=f"{channel_prefix}_{k}",
+                linewidth=1.6,
+            )
+        ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
         ax.set_title(meta.label, color=meta.color)
         ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
         ax.set_xlabel("steps")
-        ax.set_ylabel("expert coef")
+        ax.set_ylabel(ylabel)
 
     for ax in axes_flat[len(metas) :]:
         ax.axis("off")
 
     handles, labels = axes_flat[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=n_experts, frameon=False)
+    fig.legend(
+        handles, labels, loc="upper center", ncol=min(n_channels, 6), frameon=False
+    )
     fig.suptitle(title, y=1.02)
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches="tight")
     fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_path}")
+
+
+def load_reward_channels(
+    reward_files: Sequence[str],
+    col_regex: str,
+    max_points: int = 400,
+) -> Optional[Tuple[np.ndarray, np.ndarray, List[str]]]:
+    """Load aligned reward CSV channels → (x, Y[n_seeds,n_steps,n_ch], col_names)."""
+    seed_mats = []
+    xs = []
+    cols_ref: Optional[List[str]] = None
+    for path in reward_files:
+        df = pd.read_csv(path)
+        if "step" not in df.columns:
+            continue
+        cols = [c for c in df.columns if re.fullmatch(col_regex, c)]
+        if not cols:
+            continue
+        cols = sorted(cols, key=lambda c: int(c.rsplit("_", 1)[1]))
+        if cols_ref is None:
+            cols_ref = cols
+        elif cols != cols_ref:
+            # Keep intersection in reference order.
+            cols = [c for c in cols_ref if c in cols]
+            if not cols:
+                continue
+        xs.append(df["step"].to_numpy(dtype=float))
+        seed_mats.append(df[cols].to_numpy(dtype=float))
+
+    if not seed_mats or not cols_ref:
+        return None
+
+    common_x = xs[0]
+    for xr in xs[1:]:
+        common_x = np.intersect1d(common_x, xr)
+    if common_x.size == 0:
+        return None
+    if common_x.size > max_points:
+        idx = np.linspace(0, common_x.size - 1, max_points).astype(int)
+        common_x = common_x[idx]
+
+    mats = []
+    for mat, xr in zip(seed_mats, xs):
+        mask = np.isin(xr, common_x)
+        mats.append(mat[mask])
+    return common_x, np.stack(mats, axis=0), cols_ref
+
+
+def load_reward_scalar(
+    reward_files: Sequence[str],
+    column: str,
+    max_points: int = 400,
+    ci: str = "sem",
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Load one scalar reward column → (x, mean, band)."""
+    try:
+        x, Y = load_seed_series(reward_files, column)
+    except ValueError:
+        return None
+    if x.size > max_points:
+        idx = np.linspace(0, x.size - 1, max_points).astype(int)
+        x = x[idx]
+        Y = Y[:, idx]
+    mean, band = aggregate(Y, ci=ci)
+    return x, mean, band
 
 
 def _pretty_metric(metric: str) -> str:
@@ -623,6 +812,16 @@ def parse_args() -> argparse.Namespace:
         help="Column in eval.csv (default: success_rate for MetaWorld, else true_episode_reward)",
     )
     p.add_argument(
+        "--max-feedback",
+        type=int,
+        nargs="*",
+        default=None,
+        help=(
+            "Feedback budget(s) to plot, matching max_feedbackN_* run folders "
+            "(e.g. --max-feedback 20000 40000). Default: every budget found."
+        ),
+    )
+    p.add_argument(
         "--ci",
         choices=("sem", "std", "none"),
         default="sem",
@@ -643,14 +842,176 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--out-dir",
         default=None,
-        help="Output directory (default: results/exp_pebble_mixture_ablation/<env>)",
+        help="Output directory (default: results/exp_pebble_mixture_ablation/<env>/enhancement_ablation)",
     )
     p.add_argument(
         "--skip-reward",
         action="store_true",
-        help="Skip expert-coefficient plots from reward.csv",
+        help="Skip expert-coefficient / alpha plots from reward.csv",
+    )
+    p.add_argument(
+        "--alphas-only",
+        action="store_true",
+        help="Only plot alpha_* / alpha_abs_sum from reward.csv (skip eval curves)",
     )
     return p.parse_args()
+
+
+def plot_one_feedback_budget(
+    variants: Sequence[Tuple[VariantMeta, str]],
+    *,
+    max_feedback: Optional[int],
+    out_dir: str,
+    env: str,
+    metric: str,
+    ci: str,
+    last_n: int,
+    smooth: int,
+    skip_reward: bool,
+    alphas_only: bool,
+) -> bool:
+    """Build all figures for one feedback budget. Returns True if anything was plotted."""
+    fb_tag = f"max_feedback={max_feedback}" if max_feedback is not None else "all feedbacks"
+    title_suffix = (
+        f"{env} (max_feedback={max_feedback})"
+        if max_feedback is not None
+        else env
+    )
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"\n{'=' * 72}\nPlotting {fb_tag} → {out_dir}\n{'=' * 72}")
+
+    curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    finals: Dict[VariantMeta, np.ndarray] = {}
+    reward_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]] = {}
+    alpha_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]] = {}
+    alpha_bound_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]] = {}
+    alpha_abs_sum_curves: Dict[
+        VariantMeta, Tuple[np.ndarray, np.ndarray, np.ndarray]
+    ] = {}
+
+    for meta, vdir in variants:
+        if max_feedback is not None and max_feedback not in list_feedback_runs(vdir):
+            print(f"  [{meta.label:18s}] no max_feedback={max_feedback} run — skip")
+            continue
+
+        if not alphas_only:
+            eval_files = find_csv_files(vdir, "eval", max_feedback=max_feedback)
+            if not eval_files:
+                print(f"  [{meta.label}] no eval.csv — skipping eval")
+            else:
+                x, Y = load_seed_series(eval_files, metric)
+                mean, band = aggregate(Y, ci=ci)
+                if smooth > 1:
+                    mean = smooth_curve(mean, smooth)
+                    band = smooth_curve(band, smooth)
+                curves[meta] = (x, mean, band)
+
+                n = min(last_n, Y.shape[1])
+                seed_scores = np.nanmean(Y[:, -n:], axis=1)
+                finals[meta] = seed_scores
+                print(
+                    f"  [{meta.label:18s}] seeds={Y.shape[0]}  "
+                    f"last-{n} mean={seed_scores.mean():.1f} ± "
+                    f"{seed_scores.std(ddof=1):.1f}"
+                )
+
+        if not skip_reward:
+            reward_files = find_csv_files(vdir, "reward", max_feedback=max_feedback)
+            if not reward_files:
+                print(f"  [{meta.label}] no reward.csv — skipping reward metrics")
+                continue
+
+            coef = load_reward_channels(reward_files, r"expert_coef_\d+")
+            if coef is not None:
+                x_c, Y_c, _ = coef
+                reward_curves[meta] = (x_c, Y_c)
+
+            alphas = load_reward_channels(reward_files, r"alpha_\d+")
+            if alphas is not None:
+                x_a, Y_a, cols_a = alphas
+                alpha_curves[meta] = (x_a, Y_a)
+                print(
+                    f"  [{meta.label:18s}] alphas seeds={Y_a.shape[0]}  "
+                    f"channels={cols_a}  steps={Y_a.shape[1]}"
+                )
+
+            bounds = load_reward_channels(reward_files, r"alpha_bound_\d+")
+            if bounds is not None:
+                x_b, Y_b, _ = bounds
+                alpha_bound_curves[meta] = (x_b, Y_b)
+
+            abs_sum = load_reward_scalar(reward_files, "alpha_abs_sum", ci=ci)
+            if abs_sum is not None:
+                alpha_abs_sum_curves[meta] = abs_sum
+
+    if alphas_only:
+        if not alpha_curves and not alpha_abs_sum_curves:
+            print(f"No alpha metrics found for {fb_tag}.")
+            return False
+    elif not curves:
+        print(f"Nothing to plot for {fb_tag}.")
+        return False
+
+    if curves:
+        plot_learning_curves(
+            curves,
+            metric=metric,
+            title=f"Enhancement ablation — {title_suffix}",
+            out_path=os.path.join(out_dir, f"learning_curve_{metric}.png"),
+        )
+        plot_final_bars(
+            finals,
+            metric=metric,
+            title=f"Final return (last {last_n} evals) — {title_suffix}",
+            out_path=os.path.join(out_dir, f"final_bar_{metric}.png"),
+            last_n=last_n,
+        )
+        print("\n=== With vs without w_k ===")
+        plot_w_comparison(
+            curves,
+            finals,
+            metric=metric,
+            env=title_suffix,
+            out_dir=out_dir,
+            last_n=last_n,
+        )
+        table = build_summary_table(curves, finals, last_n)
+        if max_feedback is not None:
+            table.insert(1, "max_feedback", max_feedback)
+        table_path = os.path.join(out_dir, f"summary_{metric}.csv")
+        table.to_csv(table_path, index=False, float_format="%.4f")
+        print(f"Saved {table_path}")
+        print(table.to_string(index=False, float_format=lambda v: f"{v:.1f}"))
+
+    if reward_curves:
+        plot_expert_coefs(
+            reward_curves,
+            title=f"Expert coefficients — {title_suffix}",
+            out_path=os.path.join(out_dir, "expert_coefficients.png"),
+        )
+
+    if alpha_curves:
+        print("\n=== Alpha metrics ===")
+        plot_alphas(
+            alpha_curves,
+            title=rf"Trust parameters $\alpha_k$ — {title_suffix}",
+            out_path=os.path.join(out_dir, "alphas.png"),
+        )
+    if alpha_bound_curves:
+        plot_alphas(
+            alpha_bound_curves,
+            title=rf"Bounded alphas — {title_suffix}",
+            out_path=os.path.join(out_dir, "alpha_bounds.png"),
+        )
+    if alpha_abs_sum_curves:
+        plot_alpha_abs_sum(
+            alpha_abs_sum_curves,
+            title=rf"$|\alpha|_1$ across variants — {title_suffix}",
+            out_path=os.path.join(out_dir, "alpha_abs_sum.png"),
+        )
+
+    print(f"Figures → {out_dir}")
+    return True
 
 
 def main() -> int:
@@ -665,119 +1026,63 @@ def main() -> int:
         print(f"Environment directory not found: {env_dir}")
         return 1
 
-    out_dir = args.out_dir or os.path.join(
+    base_out = args.out_dir or os.path.join(
         repo, "results", args.root, args.env, "enhancement_ablation"
     )
-    os.makedirs(out_dir, exist_ok=True)
 
     variants = collect_variants(env_dir)
     if not variants:
         print(f"No ablation_* folders under {env_dir}")
         return 1
 
+    available = discover_feedback_budgets(variants)
     print(f"Found {len(variants)} ablation variants in {env_dir}")
-    curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
-    finals: Dict[VariantMeta, np.ndarray] = {}
-    reward_curves: Dict[VariantMeta, Tuple[np.ndarray, np.ndarray]] = {}
+    print(f"Available max_feedback budgets: {available if available else '(none parsed)'}")
 
-    for meta, vdir in variants:
-        eval_files = find_csv_files(vdir, "eval")
-        if not eval_files:
-            print(f"  [{meta.label}] no eval.csv — skipping")
-            continue
-        x, Y = load_seed_series(eval_files, args.metric)
-        mean, band = aggregate(Y, ci=args.ci)
-        if args.smooth > 1:
-            mean = smooth_curve(mean, args.smooth)
-            band = smooth_curve(band, args.smooth)
-        curves[meta] = (x, mean, band)
-
-        # Per-seed late average for bar chart.
-        n = min(args.last_n, Y.shape[1])
-        seed_scores = np.nanmean(Y[:, -n:], axis=1)
-        finals[meta] = seed_scores
+    if args.max_feedback is not None and len(args.max_feedback) == 0:
+        budgets: List[Optional[int]] = available if available else [None]
+    elif args.max_feedback:
+        unknown = [b for b in args.max_feedback if available and b not in available]
+        if unknown:
+            print(f"Warning: requested budgets not found: {unknown}")
+        budgets = list(args.max_feedback)
+    elif len(available) > 1:
+        budgets = available
         print(
-            f"  [{meta.label:18s}] seeds={Y.shape[0]}  "
-            f"last-{n} mean={seed_scores.mean():.1f} ± {seed_scores.std(ddof=1):.1f}"
+            f"Multiple feedback folders detected; plotting each separately: {budgets}\n"
+            f"  Tip: pass --max-feedback 20000 to plot only one."
         )
+    elif len(available) == 1:
+        budgets = available
+    else:
+        budgets = [None]
 
-        if not args.skip_reward:
-            reward_files = find_csv_files(vdir, "reward")
-            coef_cols = None
-            seed_mats = []
-            xs_r = []
-            for rf in reward_files:
-                df = pd.read_csv(rf)
-                cols = [c for c in df.columns if re.fullmatch(r"expert_coef_\d+", c)]
-                if not cols or "step" not in df.columns:
-                    continue
-                cols = sorted(cols, key=lambda c: int(c.rsplit("_", 1)[1]))
-                if coef_cols is None:
-                    coef_cols = cols
-                xs_r.append(df["step"].to_numpy(dtype=float))
-                seed_mats.append(df[cols].to_numpy(dtype=float))
-            if seed_mats and coef_cols:
-                common_x = xs_r[0]
-                for xr in xs_r[1:]:
-                    common_x = np.intersect1d(common_x, xr)
-                # Subsample reward logs (often dense) for lighter plots.
-                if common_x.size > 400:
-                    idx = np.linspace(0, common_x.size - 1, 400).astype(int)
-                    common_x = common_x[idx]
-                mats = []
-                for mat, xr in zip(seed_mats, xs_r):
-                    mask = np.isin(xr, common_x)
-                    mats.append(mat[mask])
-                reward_curves[meta] = (common_x, np.stack(mats, axis=0))
+    any_ok = False
+    for fb in budgets:
+        if len(budgets) == 1 and fb is None:
+            out_dir = base_out
+        elif len(available) > 1:
+            out_dir = os.path.join(base_out, f"max_feedback{fb}")
+        else:
+            out_dir = base_out
 
-    if not curves:
-        print("Nothing to plot.")
+        ok = plot_one_feedback_budget(
+            variants,
+            max_feedback=fb,
+            out_dir=out_dir,
+            env=args.env,
+            metric=args.metric,
+            ci=args.ci,
+            last_n=args.last_n,
+            smooth=args.smooth,
+            skip_reward=args.skip_reward,
+            alphas_only=args.alphas_only,
+        )
+        any_ok = any_ok or ok
+
+    if not any_ok:
         return 1
-
-    # --- Learning curves ---
-    plot_learning_curves(
-        curves,
-        metric=args.metric,
-        title=f"Enhancement ablation — {args.env}",
-        out_path=os.path.join(out_dir, f"learning_curve_{args.metric}.png"),
-    )
-
-    # --- Final performance bars ---
-    plot_final_bars(
-        finals,
-        metric=args.metric,
-        title=f"Final return (last {args.last_n} evals) — {args.env}",
-        out_path=os.path.join(out_dir, f"final_bar_{args.metric}.png"),
-        last_n=args.last_n,
-    )
-
-    # --- With vs without confidence weight w_k ---
-    print("\n=== With vs without w_k ===")
-    plot_w_comparison(
-        curves,
-        finals,
-        metric=args.metric,
-        env=args.env,
-        out_dir=out_dir,
-        last_n=args.last_n,
-    )
-
-    # --- Summary CSV ---
-    table = build_summary_table(curves, finals, args.last_n)
-    table_path = os.path.join(out_dir, f"summary_{args.metric}.csv")
-    table.to_csv(table_path, index=False, float_format="%.4f")
-    print(f"Saved {table_path}")
-    print(table.to_string(index=False, float_format=lambda v: f"{v:.1f}"))
-
-    # --- Expert coefficients ---
-    if reward_curves:
-        plot_expert_coefs(
-            reward_curves,
-            title=f"Expert coefficients — {args.env}",
-            out_path=os.path.join(out_dir, "expert_coefficients.png"),
-        )
-
-    print(f"\nAll figures → {out_dir}")
+    print(f"\nDone. Base output: {base_out}")
     return 0
 
 
