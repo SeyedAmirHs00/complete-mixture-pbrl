@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run buffer / RMS-ΔR diagnostics on each paper environment (one seed).
 
-Uses ``train_PEBBLE_mixture_diagnostics.py``, which logs once to
-``reward/reward.csv`` under ``exp_pebble_mixture_diagnostics/...``
+Uses ``train_PEBBLE_mixture_diagnostics.py``, which writes once to
+``buffer_diagnostics.csv`` under ``exp_pebble_mixture_diagnostics/...``
 right after ``num_seed_steps + num_unsup_steps`` (first preference update):
 
   rms_delta_r, std_delta_r, var_delta_r, mean_abs_delta_r, n_pairs,
@@ -164,7 +164,7 @@ def main() -> int:
     print(f"  seed   : {args.seed}")
     print(f"  device : {args.device}")
     print(f"  envs   : {[r.name for r in selected]}")
-    print("  logs   : exp_pebble_mixture_diagnostics/<env>/.../reward/reward.csv")
+    print("  logs   : exp_pebble_mixture_diagnostics/<env>/.../buffer_diagnostics.csv")
 
     failures = []
     for run in selected:

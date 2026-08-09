@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""PEBBLE + TTP mixture training with a one-shot reward-buffer diagnostic.
+"""PEBBLE + TTP mixture diagnostics entrypoint.
 
-Identical to ``train_PEBBLE_mixture.py`` except it uses
-``mixture_reward_model_diagnostics.MixtureRewardModel`` and logs
-rms|ΔR|_0 / SA moments once, immediately after
-``num_seed_steps + num_unsup_steps`` (after the first preference update).
+Runs seed + unsupervised exploration, does the first preference update, logs
+rms|ΔR|_0 / SA moments once, then exits (no further RL training).
 """
 import numpy as np
 import torch
@@ -280,22 +278,14 @@ class Workspace(object):
 
                 # One-shot buffer / RMS-ΔR snapshot after seed + unsupervised exploration.
                 self.reward_model.log_buffer_diagnostics(self.step)
-                
-                # relabel buffer
-                self.replay_buffer.relabel_with_predictor(self.reward_model)
-                
-                # reset Q due to unsuperivsed exploration
-                self.agent.reset_critic()
-                
-                # update agent
-                self.agent.update_after_reset(
-                    self.replay_buffer, self.logger, self.step, 
-                    gradient_update=self.cfg.reset_update, 
-                    policy_update=True)
-                
-                # reset interact_count
-                interact_count = 0
+                print(
+                    f"Diagnostics complete at step={self.step} "
+                    f"(num_seed_steps + num_unsup_steps). Stopping."
+                )
+                return
             elif self.step > self.cfg.num_seed_steps + self.cfg.num_unsup_steps:
+                # Unreachable in the diagnostics entrypoint (we return above),
+                # kept only for parity with train_PEBBLE_mixture.py.
                 # update reward function
                 if self.total_feedback < self.cfg.max_feedback:
                     if interact_count == self.cfg.num_interact:

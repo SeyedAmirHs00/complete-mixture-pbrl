@@ -4,13 +4,19 @@ Subclasses the production ``mixture_reward_model_alpha_sum_log_over`` model
 without modifying it. Call ``log_buffer_diagnostics(step)`` when you want a
 snapshot (e.g. once after ``num_seed_steps + num_unsup_steps``). Training
 itself is unchanged and does not auto-log diagnostics.
+
+Writes ``buffer_diagnostics.csv`` in the run directory (not ``reward/reward.csv``)
+so new columns do not clash with the reward logger's fixed CSV fieldnames.
 """
 
 from __future__ import annotations
 
+import os
+from typing import Optional
+
 from .diagnostics import (
     compute_reward_buffer_diagnostics,
-    log_reward_buffer_diagnostics,
+    write_reward_buffer_diagnostics_csv,
 )
 from .mixture_reward_model_alpha_sum_log_over import MixtureRewardModel as _BaseMixtureRewardModel
 
@@ -18,10 +24,8 @@ device = "cuda"
 
 
 class MixtureRewardModel(_BaseMixtureRewardModel):
-    def log_buffer_diagnostics(self, step: int):
-        """Log rms|ΔR|_0 and SA moments, then flush the reward CSV row."""
-        if self.logger is None:
-            return
+    def log_buffer_diagnostics(self, step: int, out_dir: Optional[str] = None):
+        """Snapshot rms|ΔR|_0 and SA moments to ``buffer_diagnostics.csv``."""
         stats = compute_reward_buffer_diagnostics(
             ensemble=self.ensemble,
             reward_models=self.reward_models,
@@ -29,13 +33,18 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
             da=self.da,
             device=device,
         )
-        log_reward_buffer_diagnostics(self.logger, stats, step)
-        self.logger.dump(step, ty="reward")
+        if out_dir is None:
+            if self.logger is not None and hasattr(self.logger, "_log_dir"):
+                out_dir = self.logger._log_dir
+            else:
+                out_dir = os.getcwd()
+        path = write_reward_buffer_diagnostics_csv(out_dir, stats, step)
         print(
-            f"[diagnostics @ step={step}] "
-            f"rms_delta_r={stats['rms_delta_r']:.6f} "
+            f"[diagnostics @ step={step}] wrote {path}\n"
+            f"  rms_delta_r={stats['rms_delta_r']:.6f} "
             f"mean_sa_var={stats['mean_sa_var']:.6f} "
             f"mean_sa_second_moment={stats['mean_sa_second_moment']:.6f} "
             f"n_pairs={int(stats['n_pairs'])} "
             f"n_transitions={int(stats['n_transitions'])}"
         )
+        return stats

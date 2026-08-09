@@ -203,3 +203,25 @@ def log_reward_buffer_diagnostics(logger, stats: Dict[str, float], step: int) ->
         return
     for key, value in stats.items():
         logger.log(f"reward/{key}", float(value), step)
+
+
+def write_reward_buffer_diagnostics_csv(
+    out_dir: str,
+    stats: Dict[str, float],
+    step: int,
+    filename: str = "buffer_diagnostics.csv",
+) -> str:
+    """Write diagnostics to a dedicated CSV (avoids reward.csv fieldname lock-in)."""
+    import csv
+    import os
+
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, filename)
+    row = {"step": int(step), **{k: float(v) for k, v in stats.items()}}
+    write_header = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=sorted(row.keys()))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+    return path
