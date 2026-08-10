@@ -164,6 +164,16 @@ def zero_last_linear(net: nn.Module) -> None:
             last.bias.zero_()
 
 
+def _last_linear(net: nn.Module) -> nn.Linear:
+    last: Optional[nn.Linear] = None
+    for module in net.modules():
+        if isinstance(module, nn.Linear):
+            last = module
+    if last is None:
+        raise ValueError("network has no Linear layers")
+    return last
+
+
 def apply_init_kind(net: nn.Module, init_kind: str) -> None:
     kind = init_kind.lower()
     if kind == "standard":
@@ -172,6 +182,77 @@ def apply_init_kind(net: nn.Module, init_kind: str) -> None:
         zero_last_linear(net)
         return
     raise ValueError(f"unknown init_kind={init_kind!r}; expected 'standard' or 'stabilized'")
+
+
+@torch.no_grad()
+def measure_rms_delta_r(
+    net: nn.Module,
+    states: torch.Tensor,
+    i_idx: torch.Tensor,
+    j_idx: torch.Tensor,
+) -> float:
+    """rms|ΔR| of preference pairs under ``net`` (i/j shaped [K,P] or flat)."""
+    R = segment_returns(net, states)
+    dR = R[i_idx.reshape(-1)] - R[j_idx.reshape(-1)]
+    return float(torch.sqrt((dR**2).mean()).item())
+
+
+@torch.no_grad()
+def calibrate_learner_to_target_rms(
+    net: nn.Module,
+    states: torch.Tensor,
+    i_idx: torch.Tensor,
+    j_idx: torch.Tensor,
+    target_rms: float,
+    *,
+    n_iters: int = 24,
+) -> float:
+    """
+    Scale the learner's last Linear so init rms|ΔR| ≈ ``target_rms``.
+
+    Uses the current last-layer weights as a base direction and binary-searches
+    a multiplicative scale (same idea as the old linear ``calibrate_theta_scale``).
+    ``target_rms <= 0`` zeros the last layer (Stabilized).
+
+    Returns the achieved rms|ΔR|.
+    """
+    if target_rms <= 0.0:
+        zero_last_linear(net)
+        return 0.0
+
+    last = _last_linear(net)
+    W0 = last.weight.data.clone()
+    b0 = last.bias.data.clone() if last.bias is not None else None
+
+    def apply_scale(scale: float) -> None:
+        last.weight.data.copy_(W0 * scale)
+        if b0 is not None:
+            last.bias.data.copy_(b0 * scale)
+
+    apply_scale(1.0)
+    base = measure_rms_delta_r(net, states, i_idx, j_idx)
+    if base < 1e-10:
+        # Degenerate last layer — re-draw a small random direction.
+        last.weight.normal_(0.0, 1.0 / max(1.0, float(last.weight.shape[1]) ** 0.5))
+        if last.bias is not None:
+            last.bias.zero_()
+        W0 = last.weight.data.clone()
+        b0 = last.bias.data.clone() if last.bias is not None else None
+        apply_scale(1.0)
+        base = measure_rms_delta_r(net, states, i_idx, j_idx)
+        if base < 1e-10:
+            return 0.0
+
+    lo, hi = 1e-4, 1e4
+    for _ in range(n_iters):
+        mid = 0.5 * (lo + hi)
+        apply_scale(mid)
+        if measure_rms_delta_r(net, states, i_idx, j_idx) < target_rms:
+            lo = mid
+        else:
+            hi = mid
+    apply_scale(0.5 * (lo + hi))
+    return measure_rms_delta_r(net, states, i_idx, j_idx)
 
 
 def segment_returns(net: nn.Module, states: torch.Tensor) -> torch.Tensor:
@@ -299,9 +380,14 @@ def train_one_seed_ttp(
     torch_seed: int,
     hidden: int = DEFAULT_HIDDEN,
     n_layers: int = DEFAULT_N_LAYERS,
+    target_rms: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Train one seed. states [N,T,D], i/j [K,P], y [K,P], y_bar [P].
+
+    If ``target_rms`` is set, start from PyTorch-default init then scale the last
+    Linear so init rms|ΔR| ≈ target (0 => zero last layer). Otherwise use
+    ``variant.init_kind``.
 
     Returns R_hat [N], abar [K], init_rms (scalar for this seed).
     """
@@ -311,7 +397,14 @@ def train_one_seed_ttp(
 
     torch.manual_seed(torch_seed)
     net = build_reward_mlp(d, hidden=hidden, n_layers=n_layers).to(device)
-    apply_init_kind(net, variant.init_kind)
+    if target_rms is not None:
+        init_rms = calibrate_learner_to_target_rms(
+            net, states, i_idx, j_idx, float(target_rms)
+        )
+    else:
+        apply_init_kind(net, variant.init_kind)
+        init_rms = measure_rms_delta_r(net, states, i_idx, j_idx)
+
     alpha = torch.nn.Parameter(torch.full((k,), float(alpha_init), device=device))
 
     opt = torch.optim.SGD(
@@ -320,11 +413,6 @@ def train_one_seed_ttp(
             {"params": [alpha], "lr": lr_alpha},
         ]
     )
-
-    with torch.no_grad():
-        R0 = segment_returns(net, states)
-        d0 = R0[i_idx.reshape(-1)] - R0[j_idx.reshape(-1)]
-        init_rms = float(torch.sqrt((d0**2).mean()).item())
 
     for _ in range(steps):
         opt.zero_grad()
@@ -384,6 +472,7 @@ def run_shared_variant(
     n_layers: int = DEFAULT_N_LAYERS,
     progress: bool = True,
     progress_desc: Optional[str] = None,
+    target_rms: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Returns
@@ -391,6 +480,10 @@ def run_shared_variant(
     rho : (seeds,) corr(R_hat, R*)
     alpha_bar : (seeds, K)
     init_rms : float mean empirical init rms|Delta R| across seeds
+
+    Preferences are always generated from a frozen teacher gen_net (true reward).
+    If ``target_rms`` is set, each learner is calibrated so its init rms|ΔR| on
+    the preference pairs matches that target before TTP training.
     """
     device = get_device(device)
     rng = np.random.default_rng(seed)
@@ -398,9 +491,10 @@ def run_shared_variant(
     b = np.asarray(betas, dtype=np.float64)
 
     label = progress_desc or f"{variant.name} K={k}"
+    rms_msg = f"target_rms={target_rms:g}" if target_rms is not None else f"init={variant.init_kind}"
     status_print(
         f"{label} | device={device} seeds={seeds} steps={steps} n={n_seg} T={T} d={d} "
-        f"pairs={pairs} q={q:g} init={variant.init_kind}"
+        f"pairs={pairs} q={q:g} {rms_msg}"
     )
 
     states_np = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
@@ -458,6 +552,7 @@ def run_shared_variant(
             torch_seed=seed + 1_000 + 31 * s,
             hidden=hidden,
             n_layers=n_layers,
+            target_rms=target_rms,
         )
         rhos[s] = float(rowwise_corr(R_hat[None, :], r_star[s : s + 1])[0])
         abars[s] = abar
