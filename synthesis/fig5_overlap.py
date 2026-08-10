@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from synthetic_shared_core import (
     apply_init_kind,
     build_reward_mlp,
+    get_device,
     progress_range,
     rowwise_corr,
     segment_returns,
@@ -185,7 +186,8 @@ def main() -> None:
     qs = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
     methods = ("ttp", "no_alpha", "ds_sym")
     rows = []
-    device = torch.device("cpu")
+    device = get_device()
+    status_print(f"overlap sweep | device={device} seeds={args.seeds} steps={args.steps}")
 
     for qi, q in enumerate(qs):
         rng = np.random.default_rng(7000 + qi)

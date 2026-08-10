@@ -40,6 +40,7 @@ from synthetic_shared_core import (
     DEFAULT_HIDDEN,
     DEFAULT_N_LAYERS,
     build_reward_mlp,
+    get_device,
     progress_range,
     status_print,
 )
@@ -58,19 +59,21 @@ def eval_one_seed(
     seed: int,
     hidden: int,
     n_hidden: int,
+    device=None,
 ) -> Tuple[float, float]:
     """Return (std of step rewards, std of pairwise differences)."""
+    device = get_device(device)
     torch.manual_seed(seed)
-    net = build_reward_mlp(d_in, hidden=hidden, n_layers=n_hidden)
-    x = torch.randn(n_traj, d_in)
+    net = build_reward_mlp(d_in, hidden=hidden, n_layers=n_hidden).to(device)
+    x = torch.randn(n_traj, d_in, device=device)
     r = net(x).squeeze(-1)  # (n_traj,)
 
-    std_r = float(r.std(unbiased=False))
+    std_r = float(r.std(unbiased=False).item())
     # All unordered pairs would be O(n^2); use random pairs with replacement.
-    i = torch.randint(0, n_traj, (n_traj,))
-    j = torch.randint(0, n_traj, (n_traj,))
+    i = torch.randint(0, n_traj, (n_traj,), device=device)
+    j = torch.randint(0, n_traj, (n_traj,), device=device)
     delta = r[i] - r[j]
-    std_delta = float(delta.std(unbiased=False))
+    std_delta = float(delta.std(unbiased=False).item())
     return std_r, std_delta
 
 
@@ -82,6 +85,7 @@ def run_din(
     seed_offset: int,
     hidden: int,
     n_hidden: int,
+    device=None,
 ) -> Tuple[List[float], List[float]]:
     """Return per-seed lists of std(r) and std(Δr)."""
     stds_r: List[float] = []
@@ -93,6 +97,7 @@ def run_din(
             seed=seed_offset + s,
             hidden=hidden,
             n_hidden=n_hidden,
+            device=device,
         )
         stds_r.append(sr)
         stds_d.append(sd)
@@ -146,12 +151,13 @@ def main() -> int:
 
     ensure_out_dir(args.out_dir, args.overwrite)
     t0 = time.perf_counter()
+    device = get_device()
 
     print("=" * 78)
     print("PyTorch-default reward MLP init scale (Monte Carlo)")
     print(f"arch: d_in -> ({args.hidden} LReLU) x{args.n_hidden} -> 1 Tanh")
     print(f"seeds={args.n_seeds}, samples/seed={args.n_traj}, d_in={list(args.d_in)}")
-    print(f"out_dir={args.out_dir}")
+    print(f"device={device}, out_dir={args.out_dir}")
     print("=" * 78)
     print(f"{'d_in':>6}  {'mean std(r)':>12}  {'±':>6}  {'mean std(Δr)':>12}  {'±':>6}")
     print("-" * 78)
@@ -169,6 +175,7 @@ def main() -> int:
             seed_offset=args.seed_offset,
             hidden=args.hidden,
             n_hidden=args.n_hidden,
+            device=device,
         )
         mean_r = statistics.mean(stds_r)
         sd_r = statistics.pstdev(stds_r) if len(stds_r) > 1 else 0.0

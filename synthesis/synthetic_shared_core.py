@@ -93,6 +93,15 @@ def progress_range(
     return progress_iter(range(n), total=n, desc=desc, leave=leave, disable=disable)
 
 
+def get_device(device: Optional[torch.device] = None) -> torch.device:
+    """Resolve training device; prefer CUDA when available."""
+    if device is not None:
+        return torch.device(device) if not isinstance(device, torch.device) else device
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def sigmoid_np(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -50.0, 50.0)))
 
@@ -383,14 +392,14 @@ def run_shared_variant(
     alpha_bar : (seeds, K)
     init_rms : float mean empirical init rms|Delta R| across seeds
     """
-    device = device or torch.device("cpu")
+    device = get_device(device)
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
 
     label = progress_desc or f"{variant.name} K={k}"
     status_print(
-        f"{label} | seeds={seeds} steps={steps} n={n_seg} T={T} d={d} "
+        f"{label} | device={device} seeds={seeds} steps={steps} n={n_seg} T={T} d={d} "
         f"pairs={pairs} q={q:g} init={variant.init_kind}"
     )
 

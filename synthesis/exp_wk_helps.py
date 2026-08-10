@@ -38,6 +38,7 @@ from synthetic_shared_core import (
     DEFAULT_N_LAYERS,
     apply_init_kind,
     build_reward_mlp,
+    get_device,
     progress_range,
     rowwise_corr,
     segment_returns,
@@ -160,7 +161,7 @@ def run_mlp(
     n_layers: int = DEFAULT_N_LAYERS,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """High-cap gen_net; shared (i,j) across experts so many noisy votes hit the same pairs."""
-    device = device or torch.device("cpu")
+    device = get_device(device)
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
@@ -169,7 +170,7 @@ def run_mlp(
     abars = np.zeros((seeds, k))
 
     status_print(
-        f"wk_helps 2R{k - N_RELIABLE}N use_w={use_w} | "
+        f"wk_helps 2R{k - N_RELIABLE}N use_w={use_w} | device={device} "
         f"seeds={seeds} steps={steps} n={n_seg} T={T} d={d}"
     )
     for s in progress_range(seeds, desc=f"wk 2R{k - N_RELIABLE}N w={int(use_w)}"):
@@ -255,7 +256,11 @@ def main() -> None:
     p.add_argument("--hidden", type=int, default=DEFAULT_HIDDEN)
     p.add_argument("--n_layers", type=int, default=DEFAULT_N_LAYERS)
     p.add_argument("--pairs", type=int, default=256)
-    p.add_argument("--device", default="cpu")
+    p.add_argument(
+        "--device",
+        default="auto",
+        help="torch device, or 'auto' for cuda if available",
+    )
     p.add_argument(
         "--n_noisy",
         type=int,
@@ -272,7 +277,8 @@ def main() -> None:
         shutil.rmtree(args.out_dir)
     os.makedirs(args.out_dir)
 
-    device = torch.device(args.device)
+    device = get_device(None if args.device == "auto" else args.device)
+    status_print(f"wk_helps | device={device}")
     n_noisy_grid = tuple(args.n_noisy)
     rows: List[dict] = []
     idx = 0

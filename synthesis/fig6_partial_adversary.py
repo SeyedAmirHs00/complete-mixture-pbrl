@@ -25,6 +25,7 @@ import torch
 
 from synthetic_shared_core import (
     SharedVariant,
+    get_device,
     progress_range,
     rowwise_corr,
     sample_expert_pairs,
@@ -51,7 +52,7 @@ def run_with_stochastic_adv(
     """Custom label generation for partial/stochastic adversary, then shared MLP train."""
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
-    device = torch.device("cpu")
+    device = get_device()
 
     states = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
     r_star = np.zeros((seeds, n_seg), dtype=np.float64)
