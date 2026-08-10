@@ -1,9 +1,8 @@
 """TTP mixture reward model with an explicit buffer-diagnostics hook.
 
 Subclasses the production ``mixture_reward_model_alpha_sum_log_over`` model
-without modifying it. Call ``log_buffer_diagnostics(step)`` when you want a
-snapshot (e.g. once after ``num_seed_steps + num_unsup_steps``). Training
-itself is unchanged and does not auto-log diagnostics.
+without modifying it. Call ``log_buffer_diagnostics(step)`` after each
+preference update during training. Training itself does not auto-log diagnostics.
 
 Writes ``buffer_diagnostics.csv`` in the run directory (not ``reward/reward.csv``)
 so new columns do not clash with the reward logger's fixed CSV fieldnames.
@@ -42,8 +41,9 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
         print(
             f"[diagnostics @ step={step}] wrote {path}\n"
             f"  rms_delta_r={stats['rms_delta_r']:.6f} "
+            f"corr_r_rstar={stats['corr_r_rstar']:.4f} "
+            f"corr_segment_r_rstar={stats['corr_segment_r_rstar']:.4f} "
             f"mean_sa_var={stats['mean_sa_var']:.6f} "
-            f"mean_sa_second_moment={stats['mean_sa_second_moment']:.6f} "
             f"n_pairs={int(stats['n_pairs'])} "
             f"n_transitions={int(stats['n_transitions'])}"
         )

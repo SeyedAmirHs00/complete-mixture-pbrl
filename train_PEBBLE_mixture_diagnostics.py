@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """PEBBLE + TTP mixture diagnostics entrypoint.
 
-Runs seed + unsupervised exploration, does the first preference update, logs
-rms|ΔR|_0 / SA moments once, then exits (no further RL training).
+Same training loop as ``train_PEBBLE_mixture.py``, but appends buffer /
+RMS-ΔR snapshots to ``buffer_diagnostics.csv`` after every preference update
+(first update and each subsequent ``learn_reward`` call).
 """
 import numpy as np
 import torch
@@ -200,6 +201,9 @@ class Workspace(object):
 
         print("Reward function is updated!! ACC: " + str(total_acc))
 
+    def log_buffer_diagnostics_snapshot(self):
+        self.reward_model.log_buffer_diagnostics(self.step)
+
     def run(self):
         episode, episode_reward, done = 0, 0, True
         if self.log_success:
@@ -275,17 +279,23 @@ class Workspace(object):
                 
                 # first learn reward
                 self.learn_reward(first_flag=1)
+                self.log_buffer_diagnostics_snapshot()
 
-                # One-shot buffer / RMS-ΔR snapshot after seed + unsupervised exploration.
-                self.reward_model.log_buffer_diagnostics(self.step)
-                print(
-                    f"Diagnostics complete at step={self.step} "
-                    f"(num_seed_steps + num_unsup_steps). Stopping."
-                )
-                return
+                # relabel buffer
+                self.replay_buffer.relabel_with_predictor(self.reward_model)
+
+                # reset Q due to unsuperivsed exploration
+                self.agent.reset_critic()
+
+                # update agent
+                self.agent.update_after_reset(
+                    self.replay_buffer, self.logger, self.step,
+                    gradient_update=self.cfg.reset_update,
+                    policy_update=True)
+
+                # reset interact_count
+                interact_count = 0
             elif self.step > self.cfg.num_seed_steps + self.cfg.num_unsup_steps:
-                # Unreachable in the diagnostics entrypoint (we return above),
-                # kept only for parity with train_PEBBLE_mixture.py.
                 # update reward function
                 if self.total_feedback < self.cfg.max_feedback:
                     if interact_count == self.cfg.num_interact:
@@ -299,20 +309,21 @@ class Workspace(object):
                         else:
                             frac = 1
                         self.reward_model.change_batch(frac)
-                        
+
                         # update margin --> not necessary / will be updated soon
                         new_margin = np.mean(avg_train_true_return) * (self.cfg.segment / self.env._max_episode_steps)
                         self.reward_model.set_teacher_thres_skip(new_margin * self.cfg.teacher_eps_skip)
                         self.reward_model.set_teacher_thres_equal(new_margin * self.cfg.teacher_eps_equal)
-                        
+
                         # corner case: new total feed > max feed
                         if self.reward_model.mb_size + self.total_feedback > self.cfg.max_feedback:
                             self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
-                            
+
                         self.learn_reward()
+                        self.log_buffer_diagnostics_snapshot()
                         self.replay_buffer.relabel_with_predictor(self.reward_model)
                         interact_count = 0
-                        
+
                 self.agent.update(self.replay_buffer, self.logger, self.step, 1)
                 
             # unsupervised exploration

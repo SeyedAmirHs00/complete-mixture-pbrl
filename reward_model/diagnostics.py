@@ -7,6 +7,15 @@ rms_delta_r
     where D is the labeled preference-pair buffer and R(τ) is the
     ensemble-mean predicted segment return (sum over timesteps).
 
+corr_r_rstar
+    Pearson correlation between per-step learned rewards r̂(s, a) and
+    environment rewards r*(s, a) over the trajectory buffer.
+
+corr_segment_r_rstar
+    Pearson correlation between segment returns R(τ) = Σ_t r̂(s_t, a_t) and
+    R*(τ) = Σ_t r*(s_t, a_t) over all length-``size_segment`` windows in the
+    trajectory buffer.
+
 mean_sa_var / mean_sa_std / mean_sa_second_moment
     Moments of concatenated [obs, action] rows in the reward-model
     trajectory buffer (``inputs``).
@@ -49,6 +58,128 @@ def collect_sa_from_inputs(inputs: Sequence, ds: int, da: int) -> Optional[np.nd
     if not chunks:
         return None
     return np.concatenate(chunks, axis=0)
+
+
+def _pearson_corr(x: np.ndarray, y: np.ndarray) -> float:
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    if x.size < 2 or y.size != x.size:
+        return 0.0
+    if np.std(x) == 0.0 or np.std(y) == 0.0:
+        return 0.0
+    return float(np.corrcoef(x, y)[0, 1])
+
+
+def gather_trajectory_pairs(reward_models: Sequence) -> tuple:
+    """Return aligned (sa, r*) trajectory arrays and segment length."""
+    for rm in reward_models:
+        trajectories = []
+        for sa_traj, r_traj in zip(rm.inputs, rm.targets):
+            sa = _as_traj_array(sa_traj)
+            r = _as_traj_array(r_traj)
+            if sa is None or r is None:
+                continue
+            r = r.reshape(-1)
+            if sa.shape[0] != r.shape[0]:
+                continue
+            trajectories.append((sa, r))
+        if trajectories:
+            return trajectories, int(rm.size_segment)
+    return [], 1
+
+
+@torch.no_grad()
+def _ensemble_predict(
+    ensemble: Sequence[torch.nn.Module],
+    sa: np.ndarray,
+    device: Union[str, torch.device],
+    batch_size: int,
+) -> np.ndarray:
+    """Predict ensemble-mean reward for transitions or segment sums."""
+    device = torch.device(device) if not isinstance(device, torch.device) else device
+    sa = np.asarray(sa, dtype=np.float32)
+    if sa.ndim == 2:
+        outputs: List[np.ndarray] = []
+        for start in range(0, sa.shape[0], batch_size):
+            batch = torch.as_tensor(sa[start : start + batch_size], device=device)
+            member_preds = []
+            for member in ensemble:
+                out = member(batch)
+                if out.dim() == 3:
+                    out = out.squeeze(-1)
+                elif out.dim() == 2 and out.shape[-1] == 1:
+                    out = out.squeeze(-1)
+                member_preds.append(out)
+            outputs.append(torch.stack(member_preds, dim=0).mean(dim=0).cpu().numpy())
+        return np.concatenate(outputs, axis=0)
+
+    if sa.ndim == 3:
+        seg_sums: List[np.ndarray] = []
+        for start in range(0, sa.shape[0], batch_size):
+            batch = torch.as_tensor(sa[start : start + batch_size], device=device)
+            member_preds = []
+            for member in ensemble:
+                out = member(batch)
+                if out.dim() == 3:
+                    out = out.squeeze(-1)
+                elif out.dim() == 2 and out.shape[-1] == 1:
+                    out = out.squeeze(-1)
+                member_preds.append(out.sum(dim=1))
+            seg_sums.append(torch.stack(member_preds, dim=0).mean(dim=0).cpu().numpy())
+        return np.concatenate(seg_sums, axis=0)
+
+    raise ValueError(f"Expected sa with ndim 2 or 3, got shape {sa.shape}")
+
+
+@torch.no_grad()
+def reward_env_correlation_stats(
+    ensemble: Sequence[torch.nn.Module],
+    trajectories: Sequence[tuple],
+    size_segment: int,
+    device: Union[str, torch.device] = "cuda",
+    batch_size: int = 256,
+) -> Dict[str, float]:
+    """Correlation between learned rewards R and environment rewards R*."""
+    if not trajectories:
+        return {
+            "corr_r_rstar": 0.0,
+            "corr_segment_r_rstar": 0.0,
+            "n_corr_transitions": 0.0,
+            "n_corr_segments": 0.0,
+        }
+
+    sa_steps = [sa for sa, _ in trajectories]
+    rstar_steps = [r for _, r in trajectories]
+    sa_all = np.concatenate(sa_steps, axis=0)
+    rstar_all = np.concatenate(rstar_steps, axis=0)
+    r_pred_all = _ensemble_predict(ensemble, sa_all, device=device, batch_size=batch_size)
+
+    seg_sa: List[np.ndarray] = []
+    seg_rstar: List[float] = []
+    for sa, r in trajectories:
+        if sa.shape[0] < size_segment:
+            continue
+        for start in range(0, sa.shape[0] - size_segment + 1):
+            seg_sa.append(sa[start : start + size_segment])
+            seg_rstar.append(float(r[start : start + size_segment].sum()))
+
+    if seg_sa:
+        seg_sa_arr = np.stack(seg_sa, axis=0)
+        r_pred_seg = _ensemble_predict(
+            ensemble, seg_sa_arr, device=device, batch_size=batch_size
+        )
+        corr_segment = _pearson_corr(r_pred_seg, np.asarray(seg_rstar, dtype=np.float64))
+        n_segments = float(len(seg_rstar))
+    else:
+        corr_segment = 0.0
+        n_segments = 0.0
+
+    return {
+        "corr_r_rstar": _pearson_corr(r_pred_all, rstar_all),
+        "corr_segment_r_rstar": corr_segment,
+        "n_corr_transitions": float(rstar_all.size),
+        "n_corr_segments": n_segments,
+    }
 
 
 def sa_moment_stats(x: np.ndarray, ds: int, da: int) -> Dict[str, float]:
@@ -170,6 +301,17 @@ def compute_reward_buffer_diagnostics(
     seg1, seg2 = gather_preference_pairs(reward_models)
     stats = rms_delta_r_from_pairs(
         ensemble, seg1, seg2, device=device, batch_size=batch_size
+    )
+
+    trajectories, size_segment = gather_trajectory_pairs(reward_models)
+    stats.update(
+        reward_env_correlation_stats(
+            ensemble,
+            trajectories,
+            size_segment=size_segment,
+            device=device,
+            batch_size=batch_size,
+        )
     )
 
     # Trajectory buffers are duplicated across experts; use the first non-empty.

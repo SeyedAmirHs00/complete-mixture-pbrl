@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Run buffer / RMS-ΔR diagnostics on each paper environment (one seed).
 
-Uses ``train_PEBBLE_mixture_diagnostics.py``, which writes once to
+Uses ``train_PEBBLE_mixture_diagnostics.py``, which appends to
 ``buffer_diagnostics.csv`` under ``exp_pebble_mixture_diagnostics/...``
-right after ``num_seed_steps + num_unsup_steps`` (first preference update):
+after every preference update throughout training:
 
   rms_delta_r, std_delta_r, var_delta_r, mean_abs_delta_r, n_pairs,
+  corr_r_rstar, corr_segment_r_rstar, n_corr_transitions, n_corr_segments,
   mean_state_{var,std,second_moment},
   mean_action_{var,std,second_moment},
   mean_sa_{var,std,second_moment}, n_transitions

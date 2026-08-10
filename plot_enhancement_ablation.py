@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
-"""Publication-style plots for TriTrust-PBRL enhancement ablations.
+"""Publication-style plots for TriTrust-PBRL experiments.
 
-Reads ``exp_pebble_mixture_ablation/<env>/ablation_t*_m*_w*/**/eval.csv``
-(and optionally reward/train CSVs) and writes:
+Supports two experiment layouts (``--mode auto`` picks from ``--root``):
 
-  - learning curves (mean ± SEM across seeds)
-  - final-return bar chart
-  - late-training window summary table (CSV)
-  - optional expert-coefficient trajectories from reward.csv
+**Ablation** (``exp_pebble_mixture_ablation/``)
+  Reads ``<env>/ablation_t*_m*_w*/**/eval.csv`` and optionally reward CSVs.
+  Writes learning curves, final-return bars, w_k comparison, alpha plots.
 
-Example
--------
-  python plot_enhancement_ablation.py
-  python plot_enhancement_ablation.py --root exp_pebble_mixture_ablation --env walker_walk
-  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2
-  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 20000
-  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 40000
+**Diagnostics** (``exp_pebble_mixture_diagnostics/``)
+  Reads ``<env>/max_feedback*/seed*/buffer_diagnostics.csv`` (logged after
+  each preference update throughout training) and optional ``eval.csv``.
+  Writes time-series curves, final-snapshot bar charts, and summary tables.
+
+Examples
+--------
+  # Enhancement ablation (single env)
   python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --teacher-betas 1 1 1 0
+  python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 40000
+
+  # Buffer / RMS-ΔR diagnostics (single env)
+  python plot_enhancement_ablation.py --mode diagnostics --root exp_pebble_mixture_diagnostics --env walker_walk
+
+  # Diagnostics across paper environments
+  python plot_enhancement_ablation.py --mode diagnostics --envs walker_walk cheetah_run door_open sweep_into
+
+  # Shared options
   python plot_enhancement_ablation.py --metric episode_reward --ci std --smooth 3
 """
 
@@ -46,8 +54,56 @@ TEACHER_BETAS_RE = re.compile(r"_b\[(?P<betas>[^\]]+)\]_")
 
 DEFAULT_TEACHER_BETAS: Dict[str, List[float]] = {
     "walker_walk": [1, 1, 1, 0, -1],  # 3R1N1A
-    "metaworld_sweep-into-v2": [1, 1, 1, 0],  # 3R1A
+    "metaworld_sweep-into-v2": [1, 1, 1, 0],  # 3R1A (ablation default)
     "door_open": [1, 1, 1, -1],  # 3R1A adversarial
+}
+
+DIAGNOSTICS_TEACHER_BETAS: Dict[str, List[float]] = {
+    "walker_walk": [1, 1, 1, 0, -1],
+    "cheetah_run": [1, 1, 1, -1],
+    "metaworld_door-open-v2": [1, 1, 1, -1],
+    "door_open": [1, 1, 1, -1],
+    "metaworld_sweep-into-v2": [1, 1, 1, -1],
+    "sweep_into": [1, 1, 1, -1],
+}
+
+# Short names used by scripts/run_buffer_diagnostics.py → Hydra env folder names.
+DIAGNOSTICS_ENV_ALIASES: Dict[str, str] = {
+    "door_open": "metaworld_door-open-v2",
+    "sweep_into": "metaworld_sweep-into-v2",
+}
+
+SEED_RE = re.compile(r"seed(?P<seed>\d+)")
+
+DIAGNOSTICS_METRIC_GROUPS: Dict[str, List[str]] = {
+    "Reward pair spread": ["rms_delta_r", "std_delta_r", "mean_abs_delta_r"],
+    "Reward alignment": ["corr_r_rstar", "corr_segment_r_rstar"],
+    "SA buffer moments": ["mean_sa_var", "mean_sa_std", "mean_sa_second_moment"],
+    "State moments": ["mean_state_var", "mean_state_std"],
+    "Action moments": ["mean_action_var", "mean_action_std"],
+    "Buffer size": ["n_pairs", "n_transitions"],
+}
+
+DIAGNOSTICS_LABELS: Dict[str, str] = {
+    "rms_delta_r": r"rms$|\Delta R|_0$",
+    "std_delta_r": r"std($\Delta R$)",
+    "var_delta_r": r"var($\Delta R$)",
+    "mean_abs_delta_r": r"mean$|\Delta R|$",
+    "corr_r_rstar": r"corr($R$, $R^*$) per step",
+    "corr_segment_r_rstar": r"corr($R(\tau)$, $R^*(\tau)$)",
+    "n_corr_transitions": "# corr transitions",
+    "n_corr_segments": "# corr segments",
+    "mean_sa_var": "mean SA var",
+    "mean_sa_std": "mean SA std",
+    "mean_sa_second_moment": "mean SA 2nd moment",
+    "mean_state_var": "mean state var",
+    "mean_state_std": "mean state std",
+    "mean_state_second_moment": "mean state 2nd moment",
+    "mean_action_var": "mean action var",
+    "mean_action_std": "mean action std",
+    "mean_action_second_moment": "mean action 2nd moment",
+    "n_pairs": "# preference pairs",
+    "n_transitions": "# transitions",
 }
 
 
@@ -154,14 +210,361 @@ def format_teacher_betas_tag(teacher_betas: Sequence[float]) -> str:
     return "[" + ", ".join(_format_beta_value(b) for b in teacher_betas) + "]"
 
 
-def default_teacher_betas_for_env(env: str) -> Optional[List[float]]:
-    if env in DEFAULT_TEACHER_BETAS:
-        return list(DEFAULT_TEACHER_BETAS[env])
+def default_teacher_betas_for_env(
+    env: str, *, mode: str = "ablation"
+) -> Optional[List[float]]:
+    table = DIAGNOSTICS_TEACHER_BETAS if mode == "diagnostics" else DEFAULT_TEACHER_BETAS
+    folder = resolve_env_folder(env)
+    if folder in table:
+        return list(table[folder])
+    if env in table:
+        return list(table[env])
     env_lower = env.lower()
-    for key, betas in DEFAULT_TEACHER_BETAS.items():
+    for key, betas in table.items():
         if key in env_lower or env_lower in key:
             return list(betas)
     return None
+
+
+def resolve_env_folder(env: str) -> str:
+    return DIAGNOSTICS_ENV_ALIASES.get(env, env)
+
+
+def resolve_plot_mode(root: str, mode: str) -> str:
+    if mode != "auto":
+        return mode
+    return "diagnostics" if "diagnostics" in os.path.basename(root.rstrip("/")) else "ablation"
+
+
+def collect_env_runs(
+    env_dir: str,
+    teacher_betas: Optional[Sequence[float]] = None,
+    max_feedback: Optional[int] = None,
+) -> List[str]:
+    """List Hydra run directories directly under an environment folder."""
+    feedback_runs = list_feedback_runs(env_dir, teacher_betas=teacher_betas)
+    if max_feedback is not None:
+        return feedback_runs.get(max_feedback, [])
+    return [path for runs in feedback_runs.values() for path in runs]
+
+
+def discover_env_feedback_budgets(
+    env_dir: str,
+    teacher_betas: Optional[Sequence[float]] = None,
+) -> List[int]:
+    return sorted(list_feedback_runs(env_dir, teacher_betas=teacher_betas).keys())
+
+
+def find_run_csv_files(run_dirs: Sequence[str], csv_name: str) -> List[str]:
+    files: List[str] = []
+    for root in run_dirs:
+        pattern = os.path.join(glob.escape(root), "**", f"{csv_name}.csv")
+        files.extend(glob.glob(pattern, recursive=True))
+    return sorted(f for f in files if os.path.getsize(f) > 0)
+
+
+def parse_seed_from_path(path: str) -> Optional[int]:
+    m = SEED_RE.search(path)
+    return int(m.group("seed")) if m else None
+
+
+def load_diagnostics_table(csv_files: Sequence[str], env: str) -> pd.DataFrame:
+    """Load all diagnostic snapshots from each seed run."""
+    frames = []
+    for path in csv_files:
+        df = pd.read_csv(path)
+        if df.empty:
+            continue
+        chunk = df.copy()
+        chunk["env"] = env
+        chunk["seed"] = parse_seed_from_path(path)
+        chunk["source"] = path
+        frames.append(chunk)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def diagnostics_final_by_seed(table: pd.DataFrame) -> pd.DataFrame:
+    """Last diagnostic snapshot per seed (for bar charts / cross-env summaries)."""
+    if table.empty:
+        return table
+    if "seed" in table.columns and "step" in table.columns:
+        return table.sort_values("step").groupby("seed", as_index=False).tail(1)
+    return table.iloc[[-1]].copy()
+
+
+def plot_diagnostics_curves(
+    table: pd.DataFrame,
+    metrics: Sequence[str],
+    title: str,
+    out_path: str,
+    ci: str = "sem",
+) -> None:
+    """Learning-style curves for diagnostics metrics vs training step."""
+    if table.empty or "step" not in table.columns:
+        return
+
+    metrics = [m for m in metrics if m in table.columns]
+    if not metrics:
+        return
+
+    n = len(metrics)
+    ncols = min(3, n)
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(5.0 * ncols, 3.8 * nrows), squeeze=False, sharex=True
+    )
+    axes_flat = axes.ravel()
+    cmap = plt.get_cmap("tab10")
+    seeds = sorted(table["seed"].dropna().unique()) if "seed" in table.columns else [None]
+
+    for ax, metric in zip(axes_flat, metrics):
+        for i, seed in enumerate(seeds):
+            if seed is None:
+                sub = table.sort_values("step")
+            else:
+                sub = table[table["seed"] == seed].sort_values("step")
+            if sub.empty:
+                continue
+            x = sub["step"].to_numpy(dtype=float)
+            y = sub[metric].astype(float).to_numpy()
+            label = f"seed {int(seed)}" if seed is not None and len(seeds) > 1 else metric
+            ax.plot(x, y, color=cmap(i % 10), linewidth=1.8, label=label)
+
+        if len(seeds) > 1:
+            grouped = table.groupby("step")[metric].agg(["mean", "std"]).reset_index()
+            x = grouped["step"].to_numpy(dtype=float)
+            mean = grouped["mean"].to_numpy(dtype=float)
+            std = grouped["std"].fillna(0.0).to_numpy(dtype=float)
+            band = std if ci == "std" else std / np.sqrt(max(len(seeds), 1))
+            ax.plot(x, mean, color="black", linewidth=2.2, linestyle="--", label="mean")
+            if ci != "none":
+                ax.fill_between(x, mean - band, mean + band, color="black", alpha=0.12)
+
+        ax.set_title(_pretty_diagnostics_metric(metric))
+        ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+        ax.set_xlabel("Environment steps")
+
+    for ax in axes_flat[len(metrics) :]:
+        ax.axis("off")
+
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc="upper center", ncol=min(4, len(labels)), frameon=False)
+    fig.suptitle(title, y=1.02)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+def _pretty_diagnostics_metric(metric: str) -> str:
+    return DIAGNOSTICS_LABELS.get(metric, metric.replace("_", " "))
+
+
+def plot_diagnostics_metric_bars(
+    table: pd.DataFrame,
+    metrics: Sequence[str],
+    title: str,
+    out_path: str,
+) -> None:
+    """Bar chart of diagnostics metrics (mean ± SEM across seeds when available)."""
+    metrics = [m for m in metrics if m in table.columns]
+    if not metrics:
+        return
+
+    means, sems, labels = [], [], []
+    for metric in metrics:
+        vals = table[metric].astype(float).to_numpy()
+        means.append(float(np.mean(vals)))
+        sems.append(
+            float(np.std(vals, ddof=1) / np.sqrt(len(vals))) if len(vals) > 1 else 0.0
+        )
+        labels.append(_pretty_diagnostics_metric(metric))
+
+    fig, ax = plt.subplots(figsize=(max(6.0, 1.2 * len(metrics)), 4.8))
+    x = np.arange(len(metrics))
+    ax.bar(
+        x,
+        means,
+        yerr=sems,
+        color="#4C78A8",
+        edgecolor="black",
+        linewidth=0.6,
+        capsize=4,
+        alpha=0.9,
+        error_kw={"elinewidth": 1.2, "capthick": 1.2},
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_title(title)
+    ax.set_ylabel("Value")
+    y_top = max(means[i] + sems[i] for i in range(len(means)))
+    for i, (mu, se) in enumerate(zip(means, sems)):
+        ax.text(
+            i,
+            mu + se + 0.02 * y_top,
+            f"{mu:.2g}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+def plot_diagnostics_panels(
+    table: pd.DataFrame,
+    env_label: str,
+    out_path: str,
+) -> None:
+    """Multi-panel bar chart grouped by diagnostic category."""
+    groups = [
+        (name, [m for m in metrics if m in table.columns])
+        for name, metrics in DIAGNOSTICS_METRIC_GROUPS.items()
+    ]
+    groups = [(name, metrics) for name, metrics in groups if metrics]
+    if not groups:
+        return
+
+    n = len(groups)
+    ncols = min(3, n)
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(4.5 * ncols, 3.6 * nrows), squeeze=False
+    )
+    axes_flat = axes.ravel()
+
+    for ax, (group_name, metrics) in zip(axes_flat, groups):
+        means, sems = [], []
+        for metric in metrics:
+            vals = table[metric].astype(float).to_numpy()
+            means.append(float(np.mean(vals)))
+            sems.append(
+                float(np.std(vals, ddof=1) / np.sqrt(len(vals)))
+                if len(vals) > 1
+                else 0.0
+            )
+        x = np.arange(len(metrics))
+        ax.bar(
+            x,
+            means,
+            yerr=sems,
+            color="#F58518",
+            edgecolor="black",
+            linewidth=0.6,
+            capsize=3,
+            alpha=0.9,
+        )
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            [_pretty_diagnostics_metric(m) for m in metrics],
+            rotation=25,
+            ha="right",
+            fontsize=8,
+        )
+        ax.set_title(group_name, fontsize=10)
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 3))
+
+    for ax in axes_flat[len(groups) :]:
+        ax.axis("off")
+
+    fig.suptitle(f"Reward-buffer diagnostics — {env_label}", y=1.02)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+def plot_diagnostics_cross_env(
+    tables: Dict[str, pd.DataFrame],
+    metrics: Sequence[str],
+    title: str,
+    out_path: str,
+) -> None:
+    """Grouped bars comparing selected metrics across environments."""
+    envs = sorted(tables.keys())
+    metrics = [m for m in metrics if any(m in df.columns for df in tables.values())]
+    if not envs or not metrics:
+        return
+
+    fig, ax = plt.subplots(figsize=(max(7.0, 1.5 * len(envs)), 5.0))
+    x = np.arange(len(envs))
+    width = 0.8 / len(metrics)
+    cmap = plt.get_cmap("tab10")
+
+    for j, metric in enumerate(metrics):
+        means, sems = [], []
+        for env in envs:
+            df = tables[env]
+            if metric not in df.columns:
+                means.append(np.nan)
+                sems.append(0.0)
+                continue
+            vals = df[metric].astype(float).to_numpy()
+            means.append(float(np.mean(vals)))
+            sems.append(
+                float(np.std(vals, ddof=1) / np.sqrt(len(vals))) if len(vals) > 1 else 0.0
+            )
+        offset = (j - (len(metrics) - 1) / 2) * width
+        ax.bar(
+            x + offset,
+            means,
+            width,
+            yerr=sems,
+            label=_pretty_diagnostics_metric(metric),
+            color=cmap(j),
+            edgecolor="black",
+            linewidth=0.5,
+            capsize=3,
+            alpha=0.9,
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(envs, rotation=15, ha="right")
+    ax.set_title(title)
+    ax.legend(frameon=False, fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+
+def plot_diagnostics_eval_curve(
+    eval_files: Sequence[str],
+    metric: str,
+    title: str,
+    out_path: str,
+    ci: str,
+    smooth: int,
+) -> None:
+    if not eval_files:
+        return
+    x, Y = load_seed_series(eval_files, metric)
+    mean, band = aggregate(Y, ci=ci)
+    if smooth > 1:
+        mean = smooth_curve(mean, smooth)
+        band = smooth_curve(band, smooth)
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.plot(x, mean, color="#E45756", linestyle="-", label=f"n={Y.shape[0]} seeds")
+    ax.fill_between(x, mean - band, mean + band, color="#E45756", alpha=0.18, linewidth=0)
+    ax.set_xlabel("Environment steps")
+    ax.set_ylabel(_pretty_metric(metric))
+    ax.set_title(title)
+    ax.legend(frameon=False, loc="lower right")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path.replace(".png", ".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
 
 
 def list_feedback_runs(
@@ -865,8 +1268,20 @@ def build_summary_table(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument(
+        "--mode",
+        choices=("auto", "ablation", "diagnostics"),
+        default="auto",
+        help="Experiment layout: ablation variants, buffer diagnostics, or auto from --root",
+    )
     p.add_argument("--root", default="exp_pebble_mixture_ablation")
-    p.add_argument("--env", default="walker_walk")
+    p.add_argument("--env", default="walker_walk", help="Environment folder name (ablation or diagnostics)")
+    p.add_argument(
+        "--envs",
+        nargs="+",
+        default=None,
+        help="Diagnostics only: plot/compare multiple envs (aliases: door_open, sweep_into)",
+    )
     p.add_argument(
         "--metric",
         default=None,
@@ -924,7 +1339,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--alphas-only",
         action="store_true",
-        help="Only plot alpha_* / alpha_abs_sum from reward.csv (skip eval curves)",
+        help="Ablation only: plot alpha_* / alpha_abs_sum from reward.csv (skip eval curves)",
+    )
+    p.add_argument(
+        "--skip-eval",
+        action="store_true",
+        help="Diagnostics only: skip eval.csv learning-curve plot",
     )
     return p.parse_args()
 
@@ -1104,12 +1524,186 @@ def plot_one_feedback_budget(
     return True
 
 
-def main() -> int:
-    args = parse_args()
+def main_diagnostics(args: argparse.Namespace) -> int:
+    mode = "diagnostics"
+    if args.metric is None:
+        args.metric = default_metric_for_env(args.env)
+    apply_style()
+
+    repo = os.path.dirname(os.path.abspath(__file__))
+    env_names = args.envs if args.envs else [args.env]
+    if len(env_names) == 1 and env_names[0] == "all":
+        root_dir = os.path.join(repo, args.root)
+        env_names = sorted(
+            name
+            for name in os.listdir(root_dir)
+            if os.path.isdir(os.path.join(root_dir, name))
+        )
+
+    per_env_tables: Dict[str, pd.DataFrame] = {}
+    any_ok = False
+
+    for env_name in env_names:
+        folder = resolve_env_folder(env_name)
+        teacher_betas = args.teacher_betas
+        if teacher_betas is None:
+            teacher_betas = default_teacher_betas_for_env(folder, mode=mode)
+            if teacher_betas is None:
+                teacher_betas = default_teacher_betas_for_env(env_name, mode=mode)
+
+        env_dir = os.path.join(repo, args.root, folder)
+        if not os.path.isdir(env_dir):
+            print(f"Environment directory not found: {env_dir}")
+            continue
+
+        available = discover_env_feedback_budgets(env_dir, teacher_betas=teacher_betas)
+        if args.max_feedback is not None and len(args.max_feedback) == 0:
+            budgets: List[Optional[int]] = available if available else [None]
+        elif args.max_feedback:
+            budgets = list(args.max_feedback)
+        elif len(available) == 1:
+            budgets = available
+        elif len(available) > 1:
+            budgets = available
+            print(f"[{env_name}] multiple feedback budgets: {budgets}")
+        else:
+            budgets = [None]
+
+        base_out = args.out_dir or os.path.join(
+            repo, "results", args.root, folder, "buffer_diagnostics"
+        )
+        if teacher_betas is not None:
+            beta_slug = "b" + format_teacher_betas_tag(teacher_betas).replace(" ", "")
+            base_out = os.path.join(base_out, beta_slug)
+
+        for fb in budgets:
+            if len(budgets) == 1 and fb is None:
+                out_dir = base_out
+            elif len(available) > 1:
+                out_dir = os.path.join(base_out, f"max_feedback{fb}")
+            else:
+                out_dir = base_out
+
+            run_dirs = collect_env_runs(
+                env_dir, teacher_betas=teacher_betas, max_feedback=fb
+            )
+            if not run_dirs:
+                print(f"[{env_name}] no runs for max_feedback={fb} — skip")
+                continue
+
+            diag_files = find_run_csv_files(run_dirs, "buffer_diagnostics")
+            if not diag_files:
+                print(f"[{env_name}] no buffer_diagnostics.csv — skip")
+                continue
+
+            table = load_diagnostics_table(diag_files, env=env_name)
+            if table.empty:
+                continue
+
+            final_table = diagnostics_final_by_seed(table)
+            n_seeds = final_table["seed"].nunique() if "seed" in final_table.columns else 1
+            n_snapshots = len(table)
+
+            os.makedirs(out_dir, exist_ok=True)
+            fb_tag = f", max_feedback={fb}" if fb is not None else ""
+            beta_tag = (
+                format_teacher_betas_tag(teacher_betas)
+                if teacher_betas is not None
+                else "all betas"
+            )
+            title_base = f"{env_name} ({beta_tag}{fb_tag})"
+            print(f"\n{'=' * 72}\nDiagnostics: {title_base} → {out_dir}\n{'=' * 72}")
+            print(
+                f"  seeds={n_seeds}  snapshots={n_snapshots}  "
+                f"final rms_delta_r="
+                f"{final_table['rms_delta_r'].astype(float).mean():.3g}"
+            )
+
+            summary = table.copy()
+            if fb is not None:
+                summary.insert(1, "max_feedback", fb)
+            if teacher_betas is not None:
+                summary.insert(1, "teacher_betas", format_teacher_betas_tag(teacher_betas))
+
+            csv_path = os.path.join(out_dir, "buffer_diagnostics_summary.csv")
+            summary.to_csv(csv_path, index=False, float_format="%.6g")
+            print(f"Saved {csv_path}")
+
+            plot_diagnostics_curves(
+                table,
+                [
+                    "rms_delta_r",
+                    "corr_r_rstar",
+                    "corr_segment_r_rstar",
+                    "mean_sa_var",
+                    "n_pairs",
+                ],
+                title=f"Diagnostics over training — {title_base}",
+                out_path=os.path.join(out_dir, "diagnostics_curves.png"),
+                ci=args.ci,
+            )
+            plot_diagnostics_metric_bars(
+                final_table,
+                ["corr_r_rstar", "corr_segment_r_rstar", "rms_delta_r"],
+                title=f"Reward alignment — {title_base}",
+                out_path=os.path.join(out_dir, "reward_alignment_final.png"),
+            )
+            plot_diagnostics_metric_bars(
+                final_table,
+                ["rms_delta_r", "std_delta_r", "mean_abs_delta_r"],
+                title=f"Final reward pair spread — {title_base}",
+                out_path=os.path.join(out_dir, "rms_delta_r_final.png"),
+            )
+            plot_diagnostics_panels(
+                final_table,
+                env_label=f"{title_base} (final snapshot)",
+                out_path=os.path.join(out_dir, "diagnostics_panels_final.png"),
+            )
+
+            if not args.skip_eval:
+                eval_files = find_run_csv_files(run_dirs, "eval")
+                if eval_files:
+                    plot_diagnostics_eval_curve(
+                        eval_files,
+                        metric=args.metric,
+                        title=f"Eval ({args.metric}) — {title_base}",
+                        out_path=os.path.join(out_dir, f"eval_{args.metric}.png"),
+                        ci=args.ci,
+                        smooth=args.smooth,
+                    )
+
+            per_env_tables[env_name] = final_table
+            any_ok = True
+            print(f"Figures → {out_dir}")
+
+    if len(per_env_tables) > 1:
+        cross_out = args.out_dir or os.path.join(
+            repo, "results", args.root, "_cross_env", "buffer_diagnostics"
+        )
+        os.makedirs(cross_out, exist_ok=True)
+        plot_diagnostics_cross_env(
+            per_env_tables,
+            ["corr_r_rstar", "corr_segment_r_rstar", "rms_delta_r", "mean_sa_var"],
+            title="Final buffer diagnostics across environments",
+            out_path=os.path.join(cross_out, "cross_env_comparison.png"),
+        )
+        cross_csv = os.path.join(cross_out, "cross_env_summary.csv")
+        pd.concat(per_env_tables.values(), ignore_index=True).to_csv(
+            cross_csv, index=False, float_format="%.6g"
+        )
+        print(f"Saved {cross_csv}")
+
+    if not any_ok:
+        return 1
+    print("\nDiagnostics plotting complete.")
+    return 0
+
+
+def main_ablation(args: argparse.Namespace) -> int:
     if args.metric is None:
         args.metric = default_metric_for_env(args.env)
     if args.teacher_betas is None:
-        args.teacher_betas = default_teacher_betas_for_env(args.env)
+        args.teacher_betas = default_teacher_betas_for_env(args.env, mode="ablation")
     apply_style()
 
     repo = os.path.dirname(os.path.abspath(__file__))
@@ -1184,6 +1778,14 @@ def main() -> int:
         return 1
     print(f"\nDone. Base output: {base_out}")
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+    mode = resolve_plot_mode(args.root, args.mode)
+    if mode == "diagnostics":
+        return main_diagnostics(args)
+    return main_ablation(args)
 
 
 if __name__ == "__main__":
