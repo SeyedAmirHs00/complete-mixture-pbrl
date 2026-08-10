@@ -28,6 +28,7 @@ from synthetic_shared_core import (
     SHARED_BRANCH_VARIANTS,
     build_k4_configs,
     run_shared_variant,
+    status_print,
 )
 
 
@@ -144,6 +145,7 @@ def main() -> None:
                     pairs=args.pairs,
                     q=args.q,
                     seed=9017 + 31 * idx,
+                    progress_desc=f"n={n} {cfg}/{v.name}",
                 )
                 correct = float((rho > 0.05).mean())
                 flipped = float((rho < -0.05).mean())
@@ -167,10 +169,9 @@ def main() -> None:
                         else np.nan,
                     }
                 )
-                print(
+                status_print(
                     f"n={n:4d} blk={n // 4:3d} {cfg:6s} {v.name:10s} "
-                    f"correct={correct:.3f} rho={rho.mean():+.3f} rms0={rms0:.3f}",
-                    flush=True,
+                    f"correct={correct:.3f} rho={rho.mean():+.3f} rms0={rms0:.3f}"
                 )
 
     df = pd.DataFrame(rows)

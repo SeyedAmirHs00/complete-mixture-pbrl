@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple, TypeVar
 
 import numpy as np
 import torch
@@ -40,6 +40,57 @@ from reward_model.vanilla_reward_model import gen_net  # noqa: E402
 # Match production mixture / vanilla construct_ensemble defaults.
 DEFAULT_HIDDEN = 256
 DEFAULT_N_LAYERS = 3
+
+_T = TypeVar("_T")
+
+
+def status_print(msg: str) -> None:
+    """Flush a status line; uses tqdm.write when a bar is active."""
+    line = f"[synth] {msg}"
+    try:
+        from tqdm import tqdm
+
+        tqdm.write(line)
+    except ImportError:
+        print(line, flush=True)
+
+
+def progress_iter(
+    iterable: Iterable[_T],
+    *,
+    total: Optional[int] = None,
+    desc: str = "",
+    leave: bool = True,
+    disable: bool = False,
+) -> Iterator[_T]:
+    """Wrap an iterable with a tqdm bar when available."""
+    if disable:
+        return iter(iterable)
+    try:
+        from tqdm import tqdm
+
+        return tqdm(
+            iterable,
+            total=total,
+            desc=desc,
+            leave=leave,
+            dynamic_ncols=True,
+            mininterval=0.3,
+        )
+    except ImportError:
+        if desc:
+            status_print(desc)
+        return iter(iterable)
+
+
+def progress_range(
+    n: int,
+    *,
+    desc: str = "",
+    leave: bool = True,
+    disable: bool = False,
+) -> Iterator[int]:
+    return progress_iter(range(n), total=n, desc=desc, leave=leave, disable=disable)
 
 
 def sigmoid_np(x: np.ndarray) -> np.ndarray:
@@ -322,6 +373,8 @@ def run_shared_variant(
     device: Optional[torch.device] = None,
     hidden: int = DEFAULT_HIDDEN,
     n_layers: int = DEFAULT_N_LAYERS,
+    progress: bool = True,
+    progress_desc: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Returns
@@ -335,10 +388,18 @@ def run_shared_variant(
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
 
+    label = progress_desc or f"{variant.name} K={k}"
+    status_print(
+        f"{label} | seeds={seeds} steps={steps} n={n_seg} T={T} d={d} "
+        f"pairs={pairs} q={q:g} init={variant.init_kind}"
+    )
+
     states_np = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
 
     r_star = np.zeros((seeds, n_seg), dtype=np.float64)
-    for s in range(seeds):
+    for s in progress_range(
+        seeds, desc=f"{label} teacher", leave=False, disable=not progress
+    ):
         r = teacher_segment_returns(
             states_np[s],
             d=d,
@@ -365,7 +426,9 @@ def run_shared_variant(
     abars = np.zeros((seeds, k), dtype=np.float64)
     init_rms_list: List[float] = []
 
-    for s in range(seeds):
+    for s in progress_range(
+        seeds, desc=f"{label} train", leave=True, disable=not progress
+    ):
         states = torch.as_tensor(states_np[s], dtype=torch.float32, device=device)
         i_idx = torch.as_tensor(i_np[s], dtype=torch.long, device=device)
         j_idx = torch.as_tensor(j_np[s], dtype=torch.long, device=device)
@@ -391,7 +454,12 @@ def run_shared_variant(
         abars[s] = abar
         init_rms_list.append(init_rms_s)
 
-    return rhos, abars, float(np.mean(init_rms_list))
+    init_rms = float(np.mean(init_rms_list))
+    status_print(
+        f"{label} done | mean_rho={rhos.mean():+.3f} "
+        f"correct={(rhos > 0.05).mean():.3f} init_rms={init_rms:.4g}"
+    )
+    return rhos, abars, init_rms
 
 
 def build_k4_configs() -> Dict[str, Tuple[float, ...]]:

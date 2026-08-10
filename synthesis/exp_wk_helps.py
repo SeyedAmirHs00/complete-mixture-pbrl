@@ -38,9 +38,11 @@ from synthetic_shared_core import (
     DEFAULT_N_LAYERS,
     apply_init_kind,
     build_reward_mlp,
+    progress_range,
     rowwise_corr,
     segment_returns,
     sigmoid_np,
+    status_print,
     teacher_segment_returns,
 )
 
@@ -166,7 +168,11 @@ def run_mlp(
     rhos = np.zeros(seeds)
     abars = np.zeros((seeds, k))
 
-    for s in range(seeds):
+    status_print(
+        f"wk_helps 2R{k - N_RELIABLE}N use_w={use_w} | "
+        f"seeds={seeds} steps={steps} n={n_seg} T={T} d={d}"
+    )
+    for s in progress_range(seeds, desc=f"wk 2R{k - N_RELIABLE}N w={int(use_w)}"):
         states = rng.normal(size=(n_seg, T, d)).astype(np.float32)
         r_star = teacher_segment_returns(
             states,
@@ -209,8 +215,6 @@ def run_mlp(
         )
         rhos[s] = rho
         abars[s] = abar
-        if (s + 1) % max(1, seeds // 5) == 0:
-            print(f"    seed {s+1}/{seeds}", flush=True)
 
     return rhos, abars
 
@@ -293,11 +297,10 @@ def main() -> None:
             )
             row = summarize("mlp", n_noisy, v, rho, abar)
             rows.append(row)
-            print(
+            status_print(
                 f"[mlp      2R{n_noisy}N] {v.name:7s} "
                 f"correct={row['correct']:.3f} |corr|={row['mean_abs_corr']:.3f} "
-                f"aR={row['abar_R']:+.3f} |aN|={row['abar_N_abs']:.3f}",
-                flush=True,
+                f"aR={row['abar_R']:+.3f} |aN|={row['abar_N_abs']:.3f}"
             )
             idx += 1
 

@@ -28,6 +28,7 @@ from synthetic_shared_core import (
     SharedVariant,
     build_k4_configs,
     run_shared_variant,
+    status_print,
 )
 
 
@@ -78,6 +79,7 @@ def run_sigma(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                     n_seg=n_seg,
                     q=0.0,
                     seed=9201 + 37 * idx,
+                    progress_desc=f"sigma {cfg}/{init_kind}/{mname}",
                 )
                 row = {
                     "config": cfg,
@@ -89,7 +91,7 @@ def run_sigma(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                     "mean_rho": float(rho.mean()),
                 }
                 rows.append(row)
-                print(
+                status_print(
                     f"[sigma] {cfg:7s} {init_kind:10s} {mname:10s} "
                     f"rms0={rms0:.4g} correct={row['correct_branch_rate']:.3f} "
                     f"rho={row['mean_rho']:+.3f}"

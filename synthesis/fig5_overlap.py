@@ -28,9 +28,11 @@ import torch.nn.functional as F
 from synthetic_shared_core import (
     apply_init_kind,
     build_reward_mlp,
+    progress_range,
     rowwise_corr,
     segment_returns,
     sigmoid_np,
+    status_print,
     teacher_segment_returns,
 )
 
@@ -191,7 +193,7 @@ def main() -> None:
         states_np = rng.normal(size=(seeds, n_total, T, d)).astype(np.float32)
 
         r_star = np.zeros((seeds, n_total), dtype=np.float64)
-        for s in range(seeds):
+        for s in progress_range(seeds, desc=f"q={q:g} teacher", leave=False):
             r = teacher_segment_returns(
                 states_np[s],
                 d=d,
@@ -238,7 +240,9 @@ def main() -> None:
         for method in methods:
             R_all = np.zeros((seeds, n_total))
             abar_all = np.zeros((seeds, k))
-            for s in range(seeds):
+            for s in progress_range(
+                seeds, desc=f"q={q:g} {method}", leave=True
+            ):
                 states = torch.as_tensor(states_np[s], dtype=torch.float32, device=device)
                 i_all = torch.as_tensor(i_all_np[s], dtype=torch.long, device=device)
                 j_all = torch.as_tensor(j_all_np[s], dtype=torch.long, device=device)
@@ -303,7 +307,7 @@ def main() -> None:
                 "abar_A_q75": aA_q75,
             }
             rows.append(row)
-            print(
+            status_print(
                 f"q={q:<4g} {method:8s} |rho|_med={row['global_med']:.3f} "
                 f"rho_med={row['signed_med']:+.3f} correct={row['correct']:.3f}"
             )

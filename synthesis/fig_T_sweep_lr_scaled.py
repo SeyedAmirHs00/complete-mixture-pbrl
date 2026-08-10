@@ -27,6 +27,7 @@ from synthetic_shared_core import (
     SHARED_BRANCH_VARIANTS,
     build_k4_configs,
     run_shared_variant,
+    status_print,
 )
 
 T0 = 50
@@ -79,6 +80,7 @@ def main() -> None:
                     T=T,
                     lr_theta=lr,
                     seed=9017 + 31 * idx,
+                    progress_desc=f"T={T} {cfg}/{v.name}",
                 )
                 correct = float((rho > 0.05).mean())
                 flipped = float((rho < -0.05).mean())
@@ -101,7 +103,7 @@ def main() -> None:
                         else np.nan,
                     }
                 )
-                print(
+                status_print(
                     f"T={T:3d} lr={lr:.4f} {cfg:6s} {v.name:10s} "
                     f"correct={correct:.3f} rho={rho.mean():+.3f} rms0={rms0:.3f}"
                 )

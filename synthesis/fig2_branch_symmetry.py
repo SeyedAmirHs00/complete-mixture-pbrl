@@ -26,6 +26,7 @@ from synthetic_shared_core import (
     SHARED_BRANCH_VARIANTS,
     build_k4_configs,
     run_shared_variant,
+    status_print,
 )
 
 
@@ -55,6 +56,7 @@ def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                 seeds=seeds,
                 steps=steps,
                 seed=9017 + 31 * idx,
+                progress_desc=f"branch {cfg}/{v.name}",
             )
             correct = rho > 0.05
             flipped = rho < -0.05
@@ -83,7 +85,7 @@ def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                 }
             )
             run_store[cfg][v.name] = (rho, abar)
-            print(
+            status_print(
                 f"[branch] {cfg:6s} {v.name:10s} correct={rows[-1]['correct_branch_rate']:.3f} "
                 f"rho={rows[-1]['mean_rho']:+.3f} rms0={rms0:.3f} "
                 f"trust@{branch_tag} aR={rows[-1]['mean_abar_R']:+.2f}"

@@ -25,9 +25,11 @@ import torch
 
 from synthetic_shared_core import (
     SharedVariant,
+    progress_range,
     rowwise_corr,
     sample_expert_pairs,
     sigmoid,
+    status_print,
     teacher_segment_returns,
     train_one_seed_ttp,
 )
@@ -53,7 +55,9 @@ def run_with_stochastic_adv(
 
     states = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
     r_star = np.zeros((seeds, n_seg), dtype=np.float64)
-    for s in range(seeds):
+    for s in progress_range(
+        seeds, desc=f"partial {init_kind} teacher", leave=False
+    ):
         r = teacher_segment_returns(
             states[s],
             d=d,
@@ -88,7 +92,7 @@ def run_with_stochastic_adv(
 
     rhos = np.zeros(seeds)
     abars = np.zeros((seeds, k))
-    for s in range(seeds):
+    for s in progress_range(seeds, desc=f"partial {init_kind} train", leave=True):
         states_t = torch.as_tensor(states[s], dtype=torch.float32, device=device)
         i_t = torch.as_tensor(i[s], dtype=torch.long, device=device)
         j_t = torch.as_tensor(j[s], dtype=torch.long, device=device)
@@ -162,7 +166,7 @@ def main() -> None:
                     "abar_A": float(abar[:, 3].mean()),
                 }
             )
-            print(
+            status_print(
                 f"[partial] {sname:12s} {mname:10s} correct={rows[-1]['correct']:.3f} "
                 f"aR={rows[-1]['abar_R']:+.2f} aA={rows[-1]['abar_A']:+.2f}"
             )

@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from synthetic_shared_core import SHARED_BRANCH_VARIANTS, run_shared_variant
+from synthetic_shared_core import SHARED_BRANCH_VARIANTS, run_shared_variant, status_print
 
 
 def _annotate(ax, g: np.ndarray, k: int, signed: bool = False) -> None:
@@ -280,7 +280,12 @@ def main() -> None:
             for v in SHARED_BRANCH_VARIANTS:
                 idx += 1
                 rho, abar, _ = run_shared_variant(
-                    betas, v, seeds=args.seeds, steps=args.steps, seed=8000 + idx
+                    betas,
+                    v,
+                    seeds=args.seeds,
+                    steps=args.steps,
+                    seed=8000 + idx,
+                    progress_desc=f"ratio {name}/{v.name}",
                 )
                 # Expert order in abar: reliable | noisy | adversarial
                 rel_trust = _mean_slice(abar, 0, n_r)
@@ -301,7 +306,7 @@ def main() -> None:
                 )
             sub = [r for r in rows if r["n_R"] == n_r and r["n_N"] == n_n and r["n_A"] == n_a]
             msg = " | ".join(f"{r['variant'][:3]}={r['correct_branch_rate']:.2f}" for r in sub)
-            print(f"  {name:12s} {msg}", flush=True)
+            status_print(f"  {name:12s} {msg}")
 
     table = pd.DataFrame(rows)
     table.to_csv(os.path.join(args.out_dir, "expert_ratio_shared.csv"), index=False)

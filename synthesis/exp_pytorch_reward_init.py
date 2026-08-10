@@ -36,7 +36,13 @@ from typing import Dict, List, Sequence, Tuple
 
 import torch
 
-from synthetic_shared_core import DEFAULT_HIDDEN, DEFAULT_N_LAYERS, build_reward_mlp
+from synthetic_shared_core import (
+    DEFAULT_HIDDEN,
+    DEFAULT_N_LAYERS,
+    build_reward_mlp,
+    progress_range,
+    status_print,
+)
 
 
 # DM Control / Meta-World observation sizes used in the paper.
@@ -80,7 +86,7 @@ def run_din(
     """Return per-seed lists of std(r) and std(Δr)."""
     stds_r: List[float] = []
     stds_d: List[float] = []
-    for s in range(n_seeds):
+    for s in progress_range(n_seeds, desc=f"d_in={d_in}", leave=False):
         sr, sd = eval_one_seed(
             d_in,
             n_traj=n_traj,
@@ -172,6 +178,7 @@ def main() -> int:
         all_std_r.append(mean_r)
         all_std_d.append(mean_d)
         print(f"{d_in:6d}  {mean_r:12.6f}  {sd_r:6.4f}  {mean_d:12.6f}  {sd_d:6.4f}")
+        status_print(f"d_in={d_in} mean_std(r)={mean_r:.4f} mean_std(Δr)={mean_d:.4f}")
 
         per_din_rows.append(
             {

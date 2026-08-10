@@ -16,7 +16,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
-from synthetic_shared_core import SharedVariant, run_shared_variant
+from synthetic_shared_core import SharedVariant, run_shared_variant, status_print
 
 # Production MLP reward head. Columns ablate α-tanh / max-norm / w_k.
 ABLATION_VARIANTS: Tuple[SharedVariant, ...] = (
@@ -122,10 +122,11 @@ def main() -> None:
             pairs=args.pairs,
             q=args.q,
             seed=9100 + 17 * idx,
+            progress_desc=f"ablation {v.name}",
         )
         row = summarize(v, rho, abar)
         rows.append(row)
-        print(
+        status_print(
             f"[{CFG}] {v.name:10s} correct={row['correct']:.3f} "
             f"|corr|={row['mean_abs_corr']:.3f} "
             f"aR={row['abar_R']:+.3f} aN={row['abar_N']:+.3f} aA={row['abar_A']:+.3f}"
