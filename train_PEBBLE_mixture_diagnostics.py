@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """PEBBLE + TTP mixture diagnostics entrypoint.
 
-Same training loop as ``train_PEBBLE_mixture.py``, but appends buffer /
-RMS-ΔR snapshots to ``buffer_diagnostics.csv`` after every preference update
-(first update and each subsequent ``learn_reward`` call).
+Same training loop as ``train_PEBBLE_mixture.py``, but logs buffer / RMS-ΔR
+snapshots to ``buffer_diagnostics.csv`` at two points each preference round:
+
+  pre_train  — after query sampling, before reward-model training
+  post_train — after reward-model training
 """
 import numpy as np
 import torch
@@ -161,48 +163,53 @@ class Workspace(object):
                         self.step)
         self.logger.dump(self.step)
     
-    def learn_reward(self, first_flag=0):
-                
-        # get feedbacks
-        labeled_queries, noisy_queries = 0, 0
+    def sample_preferences(self, first_flag=0) -> int:
         if first_flag == 1:
-            # if it is first time to get feedback, need to use random sampling
             labeled_queries = self.reward_model.uniform_sampling()
+        elif self.cfg.feed_type == 0:
+            labeled_queries = self.reward_model.uniform_sampling()
+        elif self.cfg.feed_type == 1:
+            labeled_queries = self.reward_model.disagreement_sampling()
+        elif self.cfg.feed_type == 2:
+            labeled_queries = self.reward_model.entropy_sampling()
+        elif self.cfg.feed_type == 3:
+            labeled_queries = self.reward_model.kcenter_sampling()
+        elif self.cfg.feed_type == 4:
+            labeled_queries = self.reward_model.kcenter_disagree_sampling()
+        elif self.cfg.feed_type == 5:
+            labeled_queries = self.reward_model.kcenter_entropy_sampling()
+        elif self.cfg.feed_type == 6:
+            labeled_queries = self.reward_model.shuffle_disagreement_sampling()
         else:
-            if self.cfg.feed_type == 0:
-                labeled_queries = self.reward_model.uniform_sampling()
-            elif self.cfg.feed_type == 1:
-                labeled_queries = self.reward_model.disagreement_sampling()
-            elif self.cfg.feed_type == 2:
-                labeled_queries = self.reward_model.entropy_sampling()
-            elif self.cfg.feed_type == 3:
-                labeled_queries = self.reward_model.kcenter_sampling()
-            elif self.cfg.feed_type == 4:
-                labeled_queries = self.reward_model.kcenter_disagree_sampling()
-            elif self.cfg.feed_type == 5:
-                labeled_queries = self.reward_model.kcenter_entropy_sampling()
-            elif self.cfg.feed_type == 6:
-                labeled_queries = self.reward_model.shuffle_disagreement_sampling()
-            else:
-                raise NotImplementedError
-        
+            raise NotImplementedError
+
         self.total_feedback += len(self.reward_model.reward_models) * self.reward_model.mb_size
         self.labeled_feedback += labeled_queries
-        
-        train_acc = 0
-        if self.labeled_feedback > 0:
-            # update reward
-            for epoch in range(self.cfg.reward_update):
-                if self.cfg.label_margin > 0 or self.cfg.teacher_eps_equal > 0:
-                    train_acc = self.reward_model.train_soft_reward()
-                else:
-                    train_acc = self.reward_model.train_reward()
-                total_acc = np.mean(train_acc)
+        return labeled_queries
 
+    def train_reward_model(self) -> float:
+        if self.labeled_feedback <= 0:
+            return 0.0
+
+        train_acc = 0.0
+        for epoch in range(self.cfg.reward_update):
+            if self.cfg.label_margin > 0 or self.cfg.teacher_eps_equal > 0:
+                train_acc = self.reward_model.train_soft_reward()
+            else:
+                train_acc = self.reward_model.train_reward()
+        total_acc = float(np.mean(train_acc))
         print("Reward function is updated!! ACC: " + str(total_acc))
+        return total_acc
 
-    def log_buffer_diagnostics_snapshot(self):
-        self.reward_model.log_buffer_diagnostics(self.step)
+    def learn_reward(self, first_flag=0) -> float:
+        self.sample_preferences(first_flag)
+        self.log_buffer_diagnostics_snapshot(phase="pre_train")
+        total_acc = self.train_reward_model()
+        self.log_buffer_diagnostics_snapshot(phase="post_train")
+        return total_acc
+
+    def log_buffer_diagnostics_snapshot(self, phase: str = "post_train"):
+        self.reward_model.log_buffer_diagnostics(self.step, phase=phase)
 
     def run(self):
         episode, episode_reward, done = 0, 0, True
@@ -277,9 +284,8 @@ class Workspace(object):
                 self.reward_model.set_teacher_thres_skip(new_margin)
                 self.reward_model.set_teacher_thres_equal(new_margin)
                 
-                # first learn reward
+                # first preference round: sample, pre-train diagnostics, train, post-train diagnostics
                 self.learn_reward(first_flag=1)
-                self.log_buffer_diagnostics_snapshot()
 
                 # relabel buffer
                 self.replay_buffer.relabel_with_predictor(self.reward_model)
@@ -320,7 +326,6 @@ class Workspace(object):
                             self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
 
                         self.learn_reward()
-                        self.log_buffer_diagnostics_snapshot()
                         self.replay_buffer.relabel_with_predictor(self.reward_model)
                         interact_count = 0
 

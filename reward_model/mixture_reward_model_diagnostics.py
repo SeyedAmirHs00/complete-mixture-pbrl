@@ -23,8 +23,10 @@ device = "cuda"
 
 
 class MixtureRewardModel(_BaseMixtureRewardModel):
-    def log_buffer_diagnostics(self, step: int, out_dir: Optional[str] = None):
-        """Snapshot rms|ΔR|_0 and SA moments to ``buffer_diagnostics.csv``."""
+    def log_buffer_diagnostics(
+        self, step: int, phase: str = "post_train", out_dir: Optional[str] = None
+    ):
+        """Snapshot buffer diagnostics to ``buffer_diagnostics.csv``."""
         stats = compute_reward_buffer_diagnostics(
             ensemble=self.ensemble,
             reward_models=self.reward_models,
@@ -37,9 +39,9 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
                 out_dir = self.logger._log_dir
             else:
                 out_dir = os.getcwd()
-        path = write_reward_buffer_diagnostics_csv(out_dir, stats, step)
+        path = write_reward_buffer_diagnostics_csv(out_dir, stats, step, phase=phase)
         print(
-            f"[diagnostics @ step={step}] wrote {path}\n"
+            f"[diagnostics @ step={step}, phase={phase}] wrote {path}\n"
             f"  rms_delta_r={stats['rms_delta_r']:.6f} "
             f"corr_r_rstar={stats['corr_r_rstar']:.4f} "
             f"corr_segment_r_rstar={stats['corr_segment_r_rstar']:.4f} "

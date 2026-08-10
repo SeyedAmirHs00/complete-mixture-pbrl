@@ -8,8 +8,9 @@ Supports two experiment layouts (``--mode auto`` picks from ``--root``):
   Writes learning curves, final-return bars, w_k comparison, alpha plots.
 
 **Diagnostics** (``exp_pebble_mixture_diagnostics/``)
-  Reads ``<env>/max_feedback*/seed*/buffer_diagnostics.csv`` (logged after
-  each preference update throughout training) and optional ``eval.csv``.
+  Reads ``<env>/max_feedback*/seed*/buffer_diagnostics.csv`` (``phase`` =
+  ``pre_train`` after sampling / before reward training, ``post_train`` after).
+  and optional ``eval.csv``.
   Writes time-series curves, final-snapshot bar charts, and summary tables.
 
 Examples
@@ -19,7 +20,7 @@ Examples
   python plot_enhancement_ablation.py --env metaworld_sweep-into-v2 --max-feedback 40000
 
   # Buffer / RMS-ΔR diagnostics (single env)
-  python plot_enhancement_ablation.py --mode diagnostics --root exp_pebble_mixture_diagnostics --env walker_walk
+  python plot_enhancement_ablation.py --mode diagnostics --env walker_walk --seeds 12345
 
   # Diagnostics across paper environments
   python plot_enhancement_ablation.py --mode diagnostics --envs walker_walk cheetah_run door_open sweep_into
@@ -40,6 +41,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from reward_model.diagnostics import (
+    DIAGNOSTICS_CSV_FIELDNAMES,
+    DIAGNOSTICS_NUMERIC_FIELDNAMES,
+    read_buffer_diagnostics_csv,
+)
 
 # ---------------------------------------------------------------------------
 # Variant metadata (matches scripts/walker_walk/run_enhancement_ablation.py)
@@ -236,6 +243,15 @@ def resolve_plot_mode(root: str, mode: str) -> str:
     return "diagnostics" if "diagnostics" in os.path.basename(root.rstrip("/")) else "ablation"
 
 
+def filter_paths_by_seeds(
+    paths: Sequence[str], seeds: Optional[Sequence[int]]
+) -> List[str]:
+    if not seeds:
+        return list(paths)
+    seed_set = {int(s) for s in seeds}
+    return [p for p in paths if parse_seed_from_path(p) in seed_set]
+
+
 def collect_env_runs(
     env_dir: str,
     teacher_betas: Optional[Sequence[float]] = None,
@@ -272,26 +288,107 @@ def load_diagnostics_table(csv_files: Sequence[str], env: str) -> pd.DataFrame:
     """Load all diagnostic snapshots from each seed run."""
     frames = []
     for path in csv_files:
-        df = pd.read_csv(path)
-        if df.empty:
+        rows = read_buffer_diagnostics_csv(path)
+        if not rows:
             continue
-        chunk = df.copy()
+        chunk = pd.DataFrame(rows)
         chunk["env"] = env
         chunk["seed"] = parse_seed_from_path(path)
         chunk["source"] = path
         frames.append(chunk)
     if not frames:
         return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+    return sanitize_diagnostics_table(pd.concat(frames, ignore_index=True))
 
 
-def diagnostics_final_by_seed(table: pd.DataFrame) -> pd.DataFrame:
+def sanitize_diagnostics_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Coerce numeric columns and drop rows that fail to parse."""
+    if table.empty:
+        return table
+    out = table.copy()
+    out["step"] = pd.to_numeric(out.get("step"), errors="coerce")
+    out = out.dropna(subset=["step"])
+    out["step"] = out["step"].astype(int)
+    out = normalize_diagnostics_phase(out)
+
+    for col in DIAGNOSTICS_NUMERIC_FIELDNAMES:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    if "rms_delta_r" in out.columns:
+        out = out.dropna(subset=["rms_delta_r"])
+    return out.reset_index(drop=True)
+
+
+def diagnostics_metric_values(table: pd.DataFrame, metric: str) -> np.ndarray:
+    if metric not in table.columns:
+        return np.array([], dtype=float)
+    vals = pd.to_numeric(table[metric], errors="coerce").dropna().to_numpy(dtype=float)
+    return vals
+
+
+def available_diagnostics_metrics(
+    table: pd.DataFrame, metrics: Sequence[str]
+) -> List[str]:
+    return [m for m in metrics if diagnostics_metric_values(table, m).size > 0]
+
+
+def normalize_diagnostics_phase(table: pd.DataFrame) -> pd.DataFrame:
+    out = table.copy()
+    if "phase" not in out.columns:
+        out["phase"] = "post_train"
+    else:
+        phase = out["phase"].astype(str).str.strip()
+        unknown = ~phase.isin(["pre_train", "post_train"])
+        phase = phase.mask(unknown, "post_train")
+        out["phase"] = phase.fillna("post_train")
+    return out
+
+
+def diagnostics_final_by_seed(
+    table: pd.DataFrame, phase: Optional[str] = "post_train"
+) -> pd.DataFrame:
     """Last diagnostic snapshot per seed (for bar charts / cross-env summaries)."""
     if table.empty:
         return table
+    table = normalize_diagnostics_phase(table)
+    if phase is not None:
+        phased = table[table["phase"] == phase]
+        if not phased.empty:
+            table = phased
+    if table.empty:
+        return table
     if "seed" in table.columns and "step" in table.columns:
-        return table.sort_values("step").groupby("seed", as_index=False).tail(1)
+        group_cols = ["seed"]
+        if "phase" in table.columns:
+            group_cols.append("phase")
+        return table.sort_values("step").groupby(group_cols, as_index=False).tail(1)
     return table.iloc[[-1]].copy()
+
+
+def plot_diagnostics_curves_by_phase(
+    table: pd.DataFrame,
+    metrics: Sequence[str],
+    title_base: str,
+    out_dir: str,
+    ci: str,
+) -> None:
+    """Write one diagnostics curve figure per ``phase`` value."""
+    table = normalize_diagnostics_phase(table)
+    phases = [p for p in ["pre_train", "post_train"] if (table["phase"] == p).any()]
+    if not phases:
+        phases = sorted(table["phase"].unique())
+
+    for phase in phases:
+        sub = table[table["phase"] == phase]
+        phase_label = "before reward training" if phase == "pre_train" else "after reward training"
+        plot_diagnostics_curves(
+            sub,
+            metrics,
+            title=f"Diagnostics ({phase_label}) — {title_base}",
+            out_path=os.path.join(out_dir, f"diagnostics_curves_{phase}.png"),
+            ci=ci,
+        )
 
 
 def plot_diagnostics_curves(
@@ -305,7 +402,7 @@ def plot_diagnostics_curves(
     if table.empty or "step" not in table.columns:
         return
 
-    metrics = [m for m in metrics if m in table.columns]
+    metrics = available_diagnostics_metrics(table, metrics)
     if not metrics:
         return
 
@@ -325,15 +422,21 @@ def plot_diagnostics_curves(
                 sub = table.sort_values("step")
             else:
                 sub = table[table["seed"] == seed].sort_values("step")
+            sub = sub.copy()
+            sub[metric] = pd.to_numeric(sub[metric], errors="coerce")
+            sub = sub.dropna(subset=["step", metric])
             if sub.empty:
                 continue
             x = sub["step"].to_numpy(dtype=float)
-            y = sub[metric].astype(float).to_numpy()
+            y = sub[metric].to_numpy(dtype=float)
             label = f"seed {int(seed)}" if seed is not None and len(seeds) > 1 else metric
             ax.plot(x, y, color=cmap(i % 10), linewidth=1.8, label=label)
 
         if len(seeds) > 1:
-            grouped = table.groupby("step")[metric].agg(["mean", "std"]).reset_index()
+            plot_table = table.copy()
+            plot_table[metric] = pd.to_numeric(plot_table[metric], errors="coerce")
+            plot_table = plot_table.dropna(subset=["step", metric])
+            grouped = plot_table.groupby("step")[metric].agg(["mean", "std"]).reset_index()
             x = grouped["step"].to_numpy(dtype=float)
             mean = grouped["mean"].to_numpy(dtype=float)
             std = grouped["std"].fillna(0.0).to_numpy(dtype=float)
@@ -371,13 +474,13 @@ def plot_diagnostics_metric_bars(
     out_path: str,
 ) -> None:
     """Bar chart of diagnostics metrics (mean ± SEM across seeds when available)."""
-    metrics = [m for m in metrics if m in table.columns]
+    metrics = available_diagnostics_metrics(table, metrics)
     if not metrics:
         return
 
     means, sems, labels = [], [], []
     for metric in metrics:
-        vals = table[metric].astype(float).to_numpy()
+        vals = diagnostics_metric_values(table, metric)
         means.append(float(np.mean(vals)))
         sems.append(
             float(np.std(vals, ddof=1) / np.sqrt(len(vals))) if len(vals) > 1 else 0.0
@@ -425,7 +528,7 @@ def plot_diagnostics_panels(
 ) -> None:
     """Multi-panel bar chart grouped by diagnostic category."""
     groups = [
-        (name, [m for m in metrics if m in table.columns])
+        (name, available_diagnostics_metrics(table, metrics))
         for name, metrics in DIAGNOSTICS_METRIC_GROUPS.items()
     ]
     groups = [(name, metrics) for name, metrics in groups if metrics]
@@ -443,7 +546,7 @@ def plot_diagnostics_panels(
     for ax, (group_name, metrics) in zip(axes_flat, groups):
         means, sems = [], []
         for metric in metrics:
-            vals = table[metric].astype(float).to_numpy()
+            vals = diagnostics_metric_values(table, metric)
             means.append(float(np.mean(vals)))
             sems.append(
                 float(np.std(vals, ddof=1) / np.sqrt(len(vals)))
@@ -490,7 +593,11 @@ def plot_diagnostics_cross_env(
 ) -> None:
     """Grouped bars comparing selected metrics across environments."""
     envs = sorted(tables.keys())
-    metrics = [m for m in metrics if any(m in df.columns for df in tables.values())]
+    metrics = [
+        m
+        for m in metrics
+        if any(diagnostics_metric_values(df, m).size > 0 for df in tables.values())
+    ]
     if not envs or not metrics:
         return
 
@@ -507,7 +614,11 @@ def plot_diagnostics_cross_env(
                 means.append(np.nan)
                 sems.append(0.0)
                 continue
-            vals = df[metric].astype(float).to_numpy()
+            vals = diagnostics_metric_values(df, metric)
+            if vals.size == 0:
+                means.append(np.nan)
+                sems.append(0.0)
+                continue
             means.append(float(np.mean(vals)))
             sems.append(
                 float(np.std(vals, ddof=1) / np.sqrt(len(vals))) if len(vals) > 1 else 0.0
@@ -1309,6 +1420,13 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Diagnostics only: plot selected seed(s) only (e.g. --seeds 12345)",
+    )
+    p.add_argument(
         "--ci",
         choices=("sem", "std", "none"),
         default="sem",
@@ -1584,6 +1702,14 @@ def main_diagnostics(args: argparse.Namespace) -> int:
             else:
                 out_dir = base_out
 
+            if args.seeds:
+                if len(args.seeds) == 1:
+                    out_dir = os.path.join(out_dir, f"seed{args.seeds[0]}")
+                else:
+                    out_dir = os.path.join(
+                        out_dir, "seeds_" + "_".join(str(s) for s in args.seeds)
+                    )
+
             run_dirs = collect_env_runs(
                 env_dir, teacher_betas=teacher_betas, max_feedback=fb
             )
@@ -1591,12 +1717,21 @@ def main_diagnostics(args: argparse.Namespace) -> int:
                 print(f"[{env_name}] no runs for max_feedback={fb} — skip")
                 continue
 
-            diag_files = find_run_csv_files(run_dirs, "buffer_diagnostics")
+            diag_files = filter_paths_by_seeds(
+                find_run_csv_files(run_dirs, "buffer_diagnostics"), args.seeds
+            )
+            if args.seeds and not diag_files:
+                print(
+                    f"[{env_name}] no buffer_diagnostics.csv for seeds={args.seeds} — skip"
+                )
+                continue
             if not diag_files:
                 print(f"[{env_name}] no buffer_diagnostics.csv — skip")
                 continue
 
             table = load_diagnostics_table(diag_files, env=env_name)
+            if args.seeds:
+                table = table[table["seed"].isin(args.seeds)]
             if table.empty:
                 continue
 
@@ -1615,8 +1750,8 @@ def main_diagnostics(args: argparse.Namespace) -> int:
             print(f"\n{'=' * 72}\nDiagnostics: {title_base} → {out_dir}\n{'=' * 72}")
             print(
                 f"  seeds={n_seeds}  snapshots={n_snapshots}  "
-                f"final rms_delta_r="
-                f"{final_table['rms_delta_r'].astype(float).mean():.3g}"
+                f"final post_train rms_delta_r="
+                f"{diagnostics_metric_values(final_table, 'rms_delta_r').mean():.3g}"
             )
 
             summary = table.copy()
@@ -1629,19 +1764,40 @@ def main_diagnostics(args: argparse.Namespace) -> int:
             summary.to_csv(csv_path, index=False, float_format="%.6g")
             print(f"Saved {csv_path}")
 
-            plot_diagnostics_curves(
+            curve_metrics = [
+                "rms_delta_r",
+                "corr_r_rstar",
+                "corr_segment_r_rstar",
+                "mean_sa_var",
+                "n_pairs",
+            ]
+            plot_diagnostics_curves_by_phase(
                 table,
-                [
-                    "rms_delta_r",
-                    "corr_r_rstar",
-                    "corr_segment_r_rstar",
-                    "mean_sa_var",
-                    "n_pairs",
-                ],
-                title=f"Diagnostics over training — {title_base}",
-                out_path=os.path.join(out_dir, "diagnostics_curves.png"),
+                curve_metrics,
+                title_base=title_base,
+                out_dir=out_dir,
                 ci=args.ci,
             )
+            post_train = table[table["phase"] == "post_train"]
+            if not post_train.empty:
+                plot_diagnostics_curves(
+                    post_train,
+                    curve_metrics,
+                    title=f"Diagnostics over training — {title_base}",
+                    out_path=os.path.join(out_dir, "diagnostics_curves.png"),
+                    ci=args.ci,
+                )
+
+            first_pre = table[
+                (table["phase"] == "pre_train") & (table["step"] == table["step"].min())
+            ]
+            if not first_pre.empty:
+                plot_diagnostics_metric_bars(
+                    first_pre,
+                    ["corr_r_rstar", "corr_segment_r_rstar", "rms_delta_r"],
+                    title=f"After unsup + sampling, before training — {title_base}",
+                    out_path=os.path.join(out_dir, "reward_alignment_pre_train.png"),
+                )
             plot_diagnostics_metric_bars(
                 final_table,
                 ["corr_r_rstar", "corr_segment_r_rstar", "rms_delta_r"],
@@ -1661,7 +1817,9 @@ def main_diagnostics(args: argparse.Namespace) -> int:
             )
 
             if not args.skip_eval:
-                eval_files = find_run_csv_files(run_dirs, "eval")
+                eval_files = filter_paths_by_seeds(
+                    find_run_csv_files(run_dirs, "eval"), args.seeds
+                )
                 if eval_files:
                     plot_diagnostics_eval_curve(
                         eval_files,

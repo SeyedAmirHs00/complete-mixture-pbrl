@@ -16,6 +16,15 @@ corr_segment_r_rstar
     R*(τ) = Σ_t r*(s_t, a_t) over all length-``size_segment`` windows in the
     trajectory buffer.
 
+Each row also includes ``phase``:
+
+pre_train
+    Logged after preference query sampling, before reward-model training
+    (untrained / previous-weights snapshot on the newly sampled buffer).
+
+post_train
+    Logged after reward-model training on the sampled preferences.
+
 mean_sa_var / mean_sa_std / mean_sa_second_moment
     Moments of concatenated [obs, action] rows in the reward-model
     trajectory buffer (``inputs``).
@@ -30,6 +39,34 @@ from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
+
+DIAGNOSTICS_CSV_FIELDNAMES: List[str] = [
+    "corr_r_rstar",
+    "corr_segment_r_rstar",
+    "mean_abs_delta_r",
+    "mean_action_second_moment",
+    "mean_action_std",
+    "mean_action_var",
+    "mean_sa_second_moment",
+    "mean_sa_std",
+    "mean_sa_var",
+    "mean_state_second_moment",
+    "mean_state_std",
+    "mean_state_var",
+    "n_corr_segments",
+    "n_corr_transitions",
+    "n_pairs",
+    "n_transitions",
+    "phase",
+    "rms_delta_r",
+    "std_delta_r",
+    "step",
+    "var_delta_r",
+]
+
+DIAGNOSTICS_NUMERIC_FIELDNAMES: List[str] = [
+    f for f in DIAGNOSTICS_CSV_FIELDNAMES if f not in {"phase"}
+]
 
 
 def _as_traj_array(traj) -> Optional[np.ndarray]:
@@ -347,10 +384,42 @@ def log_reward_buffer_diagnostics(logger, stats: Dict[str, float], step: int) ->
         logger.log(f"reward/{key}", float(value), step)
 
 
+def read_buffer_diagnostics_csv(path: str) -> List[Dict[str, str]]:
+    """Read diagnostics rows, tolerating legacy 16-column files and wide rows."""
+    import csv
+    import os
+
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return []
+
+    rows: List[Dict[str, str]] = []
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if not header:
+            return rows
+        header = [h.strip() for h in header if h and h.strip()]
+
+        for line in reader:
+            if not line:
+                continue
+            if len(line) == len(DIAGNOSTICS_CSV_FIELDNAMES):
+                row = dict(zip(DIAGNOSTICS_CSV_FIELDNAMES, line))
+            elif len(line) == len(header):
+                row = dict(zip(header, line))
+            else:
+                continue
+            if "phase" not in row or not str(row.get("phase", "")).strip():
+                row["phase"] = "post_train"
+            rows.append(row)
+    return rows
+
+
 def write_reward_buffer_diagnostics_csv(
     out_dir: str,
     stats: Dict[str, float],
     step: int,
+    phase: str = "post_train",
     filename: str = "buffer_diagnostics.csv",
 ) -> str:
     """Write diagnostics to a dedicated CSV (avoids reward.csv fieldname lock-in)."""
@@ -359,11 +428,22 @@ def write_reward_buffer_diagnostics_csv(
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, filename)
-    row = {"step": int(step), **{k: float(v) for k, v in stats.items()}}
-    write_header = not os.path.exists(path) or os.path.getsize(path) == 0
-    with open(path, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=sorted(row.keys()))
-        if write_header:
-            writer.writeheader()
-        writer.writerow(row)
+    new_row = {
+        "step": int(step),
+        "phase": phase,
+        **{k: float(v) for k, v in stats.items()},
+    }
+
+    existing = read_buffer_diagnostics_csv(path)
+    existing.append({k: str(v) for k, v in new_row.items()})
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=DIAGNOSTICS_CSV_FIELDNAMES,
+            extrasaction="ignore",
+        )
+        writer.writeheader()
+        for row in existing:
+            out = {k: row.get(k, "") for k in DIAGNOSTICS_CSV_FIELDNAMES}
+            writer.writerow(out)
     return path
