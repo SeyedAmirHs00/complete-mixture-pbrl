@@ -47,7 +47,7 @@ def run_sigma(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
     ensure_dir(out, overwrite)
     configs = build_k4_configs()
     order = ["3R1A", "2R1A1N", "3R1N", "1R3A"]
-    targets = [0.0, 0.05, 0.1, 0.25, 0.5, 1.4, 6.0]
+    targets = [1, 2, 3, 4, 0.5, 5]
     T = 50
     n_seg = 500
     methods = [
