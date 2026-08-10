@@ -164,16 +164,6 @@ def zero_last_linear(net: nn.Module) -> None:
             last.bias.zero_()
 
 
-def _last_linear(net: nn.Module) -> nn.Linear:
-    last: Optional[nn.Linear] = None
-    for module in net.modules():
-        if isinstance(module, nn.Linear):
-            last = module
-    if last is None:
-        raise ValueError("network has no Linear layers")
-    return last
-
-
 def apply_init_kind(net: nn.Module, init_kind: str) -> None:
     kind = init_kind.lower()
     if kind == "standard":
@@ -198,7 +188,7 @@ def measure_rms_delta_r(
 
 
 @torch.no_grad()
-def calibrate_learner_to_target_rms(
+def calibrate_states_to_target_rms(
     net: nn.Module,
     states: torch.Tensor,
     i_idx: torch.Tensor,
@@ -206,53 +196,37 @@ def calibrate_learner_to_target_rms(
     target_rms: float,
     *,
     n_iters: int = 24,
-) -> float:
+) -> Tuple[torch.Tensor, float]:
     """
-    Scale the learner's last Linear so init rms|ΔR| ≈ ``target_rms``.
+    Scale trajectory states so init rms|ΔR| under a *fixed* learner ≈ ``target_rms``.
 
-    Uses the current last-layer weights as a base direction and binary-searches
-    a multiplicative scale (same idea as the old linear ``calibrate_theta_scale``).
-    ``target_rms <= 0`` zeros the last layer (Stabilized).
+    PyTorch initialization of ``net`` is left unchanged. Searches a global
+    multiplier ``s`` with states' = s · states (``target_rms <= 0`` ⇒ s = 0).
 
-    Returns the achieved rms|ΔR|.
+    Returns
+    -------
+    scaled_states : same shape as ``states``
+    achieved_rms : float
     """
     if target_rms <= 0.0:
-        zero_last_linear(net)
-        return 0.0
+        return torch.zeros_like(states), 0.0
 
-    last = _last_linear(net)
-    W0 = last.weight.data.clone()
-    b0 = last.bias.data.clone() if last.bias is not None else None
-
-    def apply_scale(scale: float) -> None:
-        last.weight.data.copy_(W0 * scale)
-        if b0 is not None:
-            last.bias.data.copy_(b0 * scale)
-
-    apply_scale(1.0)
     base = measure_rms_delta_r(net, states, i_idx, j_idx)
     if base < 1e-10:
-        # Degenerate last layer — re-draw a small random direction.
-        last.weight.normal_(0.0, 1.0 / max(1.0, float(last.weight.shape[1]) ** 0.5))
-        if last.bias is not None:
-            last.bias.zero_()
-        W0 = last.weight.data.clone()
-        b0 = last.bias.data.clone() if last.bias is not None else None
-        apply_scale(1.0)
-        base = measure_rms_delta_r(net, states, i_idx, j_idx)
-        if base < 1e-10:
-            return 0.0
+        # Degenerate pairs / flat head on these states — cannot hit a nonzero target.
+        return states.clone(), 0.0
 
     lo, hi = 1e-4, 1e4
     for _ in range(n_iters):
         mid = 0.5 * (lo + hi)
-        apply_scale(mid)
-        if measure_rms_delta_r(net, states, i_idx, j_idx) < target_rms:
+        rms = measure_rms_delta_r(net, states * mid, i_idx, j_idx)
+        if rms < target_rms:
             lo = mid
         else:
             hi = mid
-    apply_scale(0.5 * (lo + hi))
-    return measure_rms_delta_r(net, states, i_idx, j_idx)
+    scale = 0.5 * (lo + hi)
+    scaled = states * scale
+    return scaled, measure_rms_delta_r(net, scaled, i_idx, j_idx)
 
 
 def segment_returns(net: nn.Module, states: torch.Tensor) -> torch.Tensor:
@@ -380,14 +354,9 @@ def train_one_seed_ttp(
     torch_seed: int,
     hidden: int = DEFAULT_HIDDEN,
     n_layers: int = DEFAULT_N_LAYERS,
-    target_rms: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Train one seed. states [N,T,D], i/j [K,P], y [K,P], y_bar [P].
-
-    If ``target_rms`` is set, start from PyTorch-default init then scale the last
-    Linear so init rms|ΔR| ≈ target (0 => zero last layer). Otherwise use
-    ``variant.init_kind``.
 
     Returns R_hat [N], abar [K], init_rms (scalar for this seed).
     """
@@ -397,13 +366,8 @@ def train_one_seed_ttp(
 
     torch.manual_seed(torch_seed)
     net = build_reward_mlp(d, hidden=hidden, n_layers=n_layers).to(device)
-    if target_rms is not None:
-        init_rms = calibrate_learner_to_target_rms(
-            net, states, i_idx, j_idx, float(target_rms)
-        )
-    else:
-        apply_init_kind(net, variant.init_kind)
-        init_rms = measure_rms_delta_r(net, states, i_idx, j_idx)
+    apply_init_kind(net, variant.init_kind)
+    init_rms = measure_rms_delta_r(net, states, i_idx, j_idx)
 
     alpha = torch.nn.Parameter(torch.full((k,), float(alpha_init), device=device))
 
@@ -482,8 +446,9 @@ def run_shared_variant(
     init_rms : float mean empirical init rms|Delta R| across seeds
 
     Preferences are always generated from a frozen teacher gen_net (true reward).
-    If ``target_rms`` is set, each learner is calibrated so its init rms|ΔR| on
-    the preference pairs matches that target before TTP training.
+    If ``target_rms`` is set, trajectory states are globally rescaled (learner
+    init untouched) so preference-pair rms|ΔR| matches the target under the
+    PyTorch-default learner; teacher labels are then built on those scaled states.
     """
     device = get_device(device)
     rng = np.random.default_rng(seed)
@@ -498,6 +463,26 @@ def run_shared_variant(
     )
 
     states_np = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
+    i_np, j_np = sample_expert_pairs(
+        rng, seeds=seeds, k=k, n_seg=n_seg, pairs=pairs, q=q
+    )
+
+    # Optionally rescale trajectories so a fixed default-init learner has target rms|ΔR|.
+    if target_rms is not None:
+        for s in progress_range(
+            seeds, desc=f"{label} scale-states", leave=False, disable=not progress
+        ):
+            torch_seed = seed + 1_000 + 31 * s
+            torch.manual_seed(torch_seed)
+            probe = build_reward_mlp(d, hidden=hidden, n_layers=n_layers).to(device)
+            # Keep PyTorch default init — do not apply_init_kind / weight scaling.
+            st = torch.as_tensor(states_np[s], dtype=torch.float32, device=device)
+            i_idx = torch.as_tensor(i_np[s], dtype=torch.long, device=device)
+            j_idx = torch.as_tensor(j_np[s], dtype=torch.long, device=device)
+            scaled, _ = calibrate_states_to_target_rms(
+                probe, st, i_idx, j_idx, float(target_rms)
+            )
+            states_np[s] = scaled.detach().cpu().numpy().astype(np.float32)
 
     r_star = np.zeros((seeds, n_seg), dtype=np.float64)
     for s in progress_range(
@@ -512,10 +497,6 @@ def run_shared_variant(
             n_layers=n_layers,
         )
         r_star[s] = (r - r.mean()) / (r.std() + 1e-12)
-
-    i_np, j_np = sample_expert_pairs(
-        rng, seeds=seeds, k=k, n_seg=n_seg, pairs=pairs, q=q
-    )
 
     y_np = np.zeros((seeds, k, pairs), dtype=np.float64)
     for e in range(k):
@@ -538,6 +519,7 @@ def run_shared_variant(
         y = torch.as_tensor(y_np[s], dtype=torch.float32, device=device)
         y_bar = torch.as_tensor(consensus_np[s], dtype=torch.float32, device=device)
 
+        # Same torch_seed as the probe above so default init matches the scaled ΔR.
         R_hat, abar, init_rms_s = train_one_seed_ttp(
             states,
             i_idx,
@@ -552,7 +534,6 @@ def run_shared_variant(
             torch_seed=seed + 1_000 + 31 * s,
             hidden=hidden,
             n_layers=n_layers,
-            target_rms=target_rms,
         )
         rhos[s] = float(rowwise_corr(R_hat[None, :], r_star[s : s + 1])[0])
         abars[s] = abar

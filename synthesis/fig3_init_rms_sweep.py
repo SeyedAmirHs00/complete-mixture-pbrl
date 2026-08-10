@@ -2,14 +2,15 @@
 Fig. 3 (main_v2): init-scale (rms|ΔR|) sweep (no consensus).
 Label: fig:synthetic-sigma-consensus
 
-Learner is a PEBBLE gen_net. For each target rms|ΔR|, the last Linear is
-scaled (or zeroed) so preference-pair ΔR matches the target *before* TTP
-training. Preferences come from a frozen teacher gen_net (true reward).
+Learner uses untouched PyTorch-default gen_net init. For each target rms|ΔR|,
+trajectory states are globally rescaled so preference-pair ΔR under that fixed
+learner matches the target *before* TTP training. Preferences come from a
+frozen teacher gen_net (true reward) on the same scaled trajectories.
 
 Produces: final_results/synthetic_shared_all/sigma_consensus_sweep/
 
 Example:
-  python fig3_sigma_consensus.py --seeds 200 --overwrite
+  python fig3_init_rms_sweep.py --seeds 200 --overwrite
 """
 
 from __future__ import annotations
