@@ -102,10 +102,10 @@ pngs/
 Thumbs.db
 
 # Ignore workspace and experiment folders
-./workspace/
-./exp_*/
-./other/
-./exp*/
+workspace/
+exp_*/
+other/
+exp*/
 
 *.pyc
 __pycache__/
@@ -121,3 +121,24 @@ snippets.*
 *.rar
 *.gz
 *.tex
+*.pdf
+*.docx
+*.doc
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.csv
+*.tsv
+*.h5
+*.hdf5
+*.pth
+*.bib
+synthesis/*.aux
+*.bbl
+*.blg
+*.png
+*.pdf
+synthesis/final_results/
+synthesis/_recover_tmp/
+*.sty
