@@ -8,7 +8,7 @@ after every preference round at two checkpoints:
   pre_train  — after query sampling, before reward-model training
   post_train — after reward-model training
 
-  rms_delta_r, std_delta_r, var_delta_r, mean_abs_delta_r, n_pairs,
+  rms_delta_r, median_sq_delta_r, std_delta_r, var_delta_r, mean_abs_delta_r, n_pairs,
   corr_r_rstar, corr_segment_r_rstar, n_corr_transitions, n_corr_segments,
   mean_state_{var,std,second_moment},
   mean_action_{var,std,second_moment},

@@ -83,7 +83,7 @@ DIAGNOSTICS_ENV_ALIASES: Dict[str, str] = {
 SEED_RE = re.compile(r"seed(?P<seed>\d+)")
 
 DIAGNOSTICS_METRIC_GROUPS: Dict[str, List[str]] = {
-    "Reward pair spread": ["rms_delta_r", "std_delta_r", "mean_abs_delta_r"],
+    "Reward pair spread": ["rms_delta_r", "median_sq_delta_r", "std_delta_r", "mean_abs_delta_r"],
     "Reward alignment": ["corr_r_rstar", "corr_segment_r_rstar"],
     "SA buffer moments": ["mean_sa_var", "mean_sa_std", "mean_sa_second_moment"],
     "State moments": ["mean_state_var", "mean_state_std"],
@@ -93,6 +93,7 @@ DIAGNOSTICS_METRIC_GROUPS: Dict[str, List[str]] = {
 
 DIAGNOSTICS_LABELS: Dict[str, str] = {
     "rms_delta_r": r"rms$|\Delta R|_0$",
+    "median_sq_delta_r": r"median($\Delta R^2$)",
     "std_delta_r": r"std($\Delta R$)",
     "var_delta_r": r"var($\Delta R$)",
     "mean_abs_delta_r": r"mean$|\Delta R|$",

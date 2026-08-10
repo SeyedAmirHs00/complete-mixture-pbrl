@@ -7,6 +7,9 @@ rms_delta_r
     where D is the labeled preference-pair buffer and R(τ) is the
     ensemble-mean predicted segment return (sum over timesteps).
 
+median_sq_delta_r
+    median_{(i,j) in D} (R(τ_i) - R(τ_j))^2 over the same preference pairs.
+
 corr_r_rstar
     Pearson correlation between per-step learned rewards r̂(s, a) and
     environment rewards r*(s, a) over the trajectory buffer.
@@ -53,6 +56,7 @@ DIAGNOSTICS_CSV_FIELDNAMES: List[str] = [
     "mean_state_second_moment",
     "mean_state_std",
     "mean_state_var",
+    "median_sq_delta_r",
     "n_corr_segments",
     "n_corr_transitions",
     "n_pairs",
@@ -272,6 +276,7 @@ def rms_delta_r_from_pairs(
             "std_delta_r": 0.0,
             "var_delta_r": 0.0,
             "mean_abs_delta_r": 0.0,
+            "median_sq_delta_r": 0.0,
         }
 
     device = torch.device(device) if not isinstance(device, torch.device) else device
@@ -306,6 +311,7 @@ def rms_delta_r_from_pairs(
         "std_delta_r": float(delta.std()),
         "var_delta_r": float(delta.var()),
         "mean_abs_delta_r": float(np.abs(delta).mean()),
+        "median_sq_delta_r": float(np.median(sq)),
     }
 
 

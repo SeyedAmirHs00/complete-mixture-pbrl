@@ -43,6 +43,7 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
         print(
             f"[diagnostics @ step={step}, phase={phase}] wrote {path}\n"
             f"  rms_delta_r={stats['rms_delta_r']:.6f} "
+            f"median_sq_delta_r={stats['median_sq_delta_r']:.6f} "
             f"corr_r_rstar={stats['corr_r_rstar']:.4f} "
             f"corr_segment_r_rstar={stats['corr_segment_r_rstar']:.4f} "
             f"mean_sa_var={stats['mean_sa_var']:.6f} "
