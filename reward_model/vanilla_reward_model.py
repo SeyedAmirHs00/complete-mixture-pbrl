@@ -27,6 +27,19 @@ def gen_net(in_size=1, out_size=1, H=128, n_layers=3, activation='tanh'):
 
     return net
 
+def zero_last_linear(net):
+    """Zero the last Linear weight and bias (stabilized / zero-output init)."""
+    last = None
+    for module in net.modules():
+        if isinstance(module, nn.Linear):
+            last = module
+    if last is None:
+        raise ValueError("network has no Linear layers")
+    with torch.no_grad():
+        last.weight.zero_()
+        if last.bias is not None:
+            last.bias.zero_()
+
 def KCenterGreedy(obs, full_obs, num_new_sample):
     selected_index = []
     current_index = list(range(obs.shape[0]))
