@@ -149,6 +149,16 @@ bash scripts/sweep_into/run_pebble_mixup_mixture_b\[1,1,1,-1\].sh   # MCP
 bash scripts/sweep_into/run_rime_mixture_b\[1,1,1,-1\].sh           # RIME
 ```
 
+## Plotting
+
+For flat experiment trees such as `exp_pebble_mixture_zero_last`, see **[PLOTTING.md](PLOTTING.md)** and:
+
+```bash
+python plot_experiments.py --root exp_pebble_mixture_zero_last
+```
+
+Enhancement ablations / buffer diagnostics use `plot_enhancement_ablation.py` (see that file’s docstring).
+
 ## Acknowledgement
 
 This implementation builds on the official codebases of [B-Pref](https://github.com/rll-research/BPref), [PEBBLE](https://github.com/rll-research/BPref), [SURF](https://github.com/alinlab/SURF), [RUNE](https://github.com/rll-research/rune), [MRN](https://github.com/RyanLiu112/MRN), [QPA](https://github.com/huxiao09/QPA), [RIME](https://github.com/CJReinforce/RIME_ICML2024), and [MCP](https://github.com/JongkookHeo/MCP).

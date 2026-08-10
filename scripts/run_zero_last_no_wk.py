@@ -11,7 +11,7 @@ Hyperparameters match the existing per-env mixture scripts
 Example
 -------
   python scripts/run_zero_last_no_wk.py --dry-run
-  python scripts/run_zero_last_no_wk.py --seed 12345
+  python scripts/run_zero_last_no_wk.py --seed 23451
   python scripts/run_zero_last_no_wk.py --envs walker_walk cheetah_run
 """
 
@@ -34,50 +34,6 @@ class EnvRun:
 
 # Hyperparameters match the existing per-env mixture scripts.
 ENV_RUNS: Sequence[EnvRun] = (
-    EnvRun(
-        "walker_walk",
-        "walker_walk",
-        (
-            "agent.params.actor_lr=0.0005",
-            "agent.params.critic_lr=0.0005",
-            "num_train_steps=500000",
-            "agent.params.batch_size=1024",
-            "double_q_critic.params.hidden_dim=1024",
-            "double_q_critic.params.hidden_depth=2",
-            "diag_gaussian_actor.params.hidden_dim=1024",
-            "diag_gaussian_actor.params.hidden_depth=2",
-            "num_unsup_steps=9000",
-            "reward_batch=100",
-            "num_interact=20000",
-            "max_feedback=5000",
-            "feed_type=6",
-            "reward_update=50",
-            "reset_update=100",
-            "teacher_betas=[1,1,1,-1]",
-        ),
-    ),
-    EnvRun(
-        "door_open",
-        "metaworld_door-open-v2",
-        (
-            "agent.params.actor_lr=0.0003",
-            "agent.params.critic_lr=0.0003",
-            "activation=tanh",
-            "num_unsup_steps=9000",
-            "num_train_steps=1000000",
-            "agent.params.batch_size=512",
-            "double_q_critic.params.hidden_dim=256",
-            "double_q_critic.params.hidden_depth=3",
-            "diag_gaussian_actor.params.hidden_dim=256",
-            "diag_gaussian_actor.params.hidden_depth=3",
-            "reward_update=10",
-            "num_interact=5000",
-            "max_feedback=40000",
-            "reward_batch=50",
-            "feed_type=6",
-            "teacher_betas=[1,1,1,-1]",
-        ),
-    ),
     EnvRun(
         "sweep_into",
         "metaworld_sweep-into-v2",
@@ -119,6 +75,50 @@ ENV_RUNS: Sequence[EnvRun] = (
             "feed_type=6",
             "reward_update=50",
             "reset_update=100",
+            "teacher_betas=[1,1,1,-1]",
+        ),
+    ),
+    EnvRun(
+        "walker_walk",
+        "walker_walk",
+        (
+            "agent.params.actor_lr=0.0005",
+            "agent.params.critic_lr=0.0005",
+            "num_train_steps=500000",
+            "agent.params.batch_size=1024",
+            "double_q_critic.params.hidden_dim=1024",
+            "double_q_critic.params.hidden_depth=2",
+            "diag_gaussian_actor.params.hidden_dim=1024",
+            "diag_gaussian_actor.params.hidden_depth=2",
+            "num_unsup_steps=9000",
+            "reward_batch=100",
+            "num_interact=20000",
+            "max_feedback=5000",
+            "feed_type=6",
+            "reward_update=50",
+            "reset_update=100",
+            "teacher_betas=[1,1,1,-1]",
+        ),
+    ),
+    EnvRun(
+        "door_open",
+        "metaworld_door-open-v2",
+        (
+            "agent.params.actor_lr=0.0003",
+            "agent.params.critic_lr=0.0003",
+            "activation=tanh",
+            "num_unsup_steps=9000",
+            "num_train_steps=1000000",
+            "agent.params.batch_size=512",
+            "double_q_critic.params.hidden_dim=256",
+            "double_q_critic.params.hidden_depth=3",
+            "diag_gaussian_actor.params.hidden_dim=256",
+            "diag_gaussian_actor.params.hidden_depth=3",
+            "reward_update=10",
+            "num_interact=5000",
+            "max_feedback=40000",
+            "reward_batch=50",
+            "feed_type=6",
             "teacher_betas=[1,1,1,-1]",
         ),
     ),
