@@ -1,6 +1,11 @@
 """
-Fig. 6 (main_v2): partial / stochastic adversaries.
+Fig. 6 (main_v3): partial / stochastic adversaries.
 Label: fig:partial-adversary
+
+On 3R1A we weaken the adversary to β∈{-1,-0.5,-0.25} or make it stochastic
+(flip with probability p∈{0.25,0.5}). We log both max-normalized trust
+\\bar α and bounded trust \\tilde α = tanh(α) so recovered adversary trust
+can be compared directly to corruption strength (main_v3 §partial adversaries).
 
 Example:
   python fig6_partial_adversary.py --seeds 200 --overwrite
@@ -35,8 +40,15 @@ def run_with_stochastic_adv(
     n_seg: int = 500,
     q: float = 0.0,
     pairs: int = 256,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Custom label generation for partial/stochastic adversary, then shared train."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Custom label generation for partial/stochastic adversary, then shared train.
+
+    Returns
+    -------
+    rho : (seeds,)
+    abar : (seeds, K)  max-normalized \\bar α
+    tilde : (seeds, K)  tanh(α)
+    """
     from synthetic_shared_core import calibrate_theta_scale
 
     rng = np.random.default_rng(seed)
@@ -74,9 +86,9 @@ def run_with_stochastic_adv(
 
     import torch
     import torch.nn.functional as F
-    from synthetic_shared_core import _segment_returns, rowwise_corr
+    from synthetic_shared_core import _segment_returns, get_device, rowwise_corr
 
-    device = torch.device("cpu")
+    device = get_device()
     states_t = torch.as_tensor(states, dtype=torch.float32, device=device)
     i_t = torch.as_tensor(i, dtype=torch.long, device=device)
     j_t = torch.as_tensor(j, dtype=torch.long, device=device)
@@ -120,9 +132,10 @@ def run_with_stochastic_adv(
     with torch.no_grad():
         R = _segment_returns(states_t, theta, True).cpu().numpy()
         trust = torch.tanh(alpha)
+        tilde = trust.cpu().numpy()
         abar = (trust / trust.abs().amax(1, keepdim=True).clamp_min(1e-12)).cpu().numpy()
     rho = rowwise_corr(R, r_star)
-    return rho, abar
+    return rho, abar, tilde
 
 
 def main() -> None:
@@ -151,12 +164,13 @@ def main() -> None:
         ("standard", dict(target_rms=1.4, consensus_coef=0.0)),
     ]
 
-    rows = []
+    summary_rows = []
+    per_seed_rows = []
     idx = 0
     for sname, skw in settings:
         for mname, mkw in methods:
             idx += 1
-            rho, abar = run_with_stochastic_adv(
+            rho, abar, tilde = run_with_stochastic_adv(
                 seeds=args.seeds,
                 steps=args.steps,
                 seed=9400 + idx,
@@ -165,7 +179,7 @@ def main() -> None:
                 **skw,
                 **mkw,
             )
-            rows.append(
+            summary_rows.append(
                 {
                     "setting": sname,
                     "method": mname,
@@ -173,15 +187,38 @@ def main() -> None:
                     "mean_rho": float(rho.mean()),
                     "abar_R": float(abar[:, :3].mean()),
                     "abar_A": float(abar[:, 3].mean()),
+                    "tilde_R": float(tilde[:, :3].mean()),
+                    "tilde_A": float(tilde[:, 3].mean()),
+                    "tilde_A_std": float(tilde[:, 3].std()),
                 }
             )
+            for s in range(args.seeds):
+                row = {
+                    "setting": sname,
+                    "method": mname,
+                    "seed_idx": s,
+                    "rho": float(rho[s]),
+                    "abar_R": float(abar[s, :3].mean()),
+                    "abar_A": float(abar[s, 3]),
+                    "tilde_R": float(tilde[s, :3].mean()),
+                    "tilde_A": float(tilde[s, 3]),
+                }
+                for e in range(tilde.shape[1]):
+                    row[f"tilde_alpha_{e}"] = float(tilde[s, e])
+                    row[f"abar_alpha_{e}"] = float(abar[s, e])
+                per_seed_rows.append(row)
             print(
-                f"[partial] {sname:12s} {mname:10s} correct={rows[-1]['correct']:.3f} "
-                f"aR={rows[-1]['abar_R']:+.2f} aA={rows[-1]['abar_A']:+.2f}"
+                f"[partial] {sname:12s} {mname:10s} correct={summary_rows[-1]['correct']:.3f} "
+                f"aR={summary_rows[-1]['abar_R']:+.2f} aA={summary_rows[-1]['abar_A']:+.2f} "
+                f"tR={summary_rows[-1]['tilde_R']:+.2f} tA={summary_rows[-1]['tilde_A']:+.2f}"
             )
 
-    table = pd.DataFrame(rows)
+    table = pd.DataFrame(summary_rows)
     table.to_csv(os.path.join(args.out_dir, "partial_adversary_shared.csv"), index=False)
+    pd.DataFrame(per_seed_rows).to_csv(
+        os.path.join(args.out_dir, "partial_adversary_tanh_alpha_per_seed.csv"),
+        index=False,
+    )
 
     # plots
     settings_order = [s for s, _ in settings]
@@ -214,6 +251,38 @@ def main() -> None:
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(os.path.join(args.out_dir, "partial_adversary_recovered_trust.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # Bounded trust tanh(α): recovered adversary strength tracks β / flip rate.
+    fig, ax = plt.subplots(figsize=(7.5, 3.6))
+    for mi, (mname, _) in enumerate(methods):
+        tA = [table[(table.setting == s) & (table.method == mname)].iloc[0].tilde_A for s in settings_order]
+        tR = [table[(table.setting == s) & (table.method == mname)].iloc[0].tilde_R for s in settings_order]
+        tA_err = [
+            table[(table.setting == s) & (table.method == mname)].iloc[0].tilde_A_std
+            for s in settings_order
+        ]
+        ax.bar(
+            x + (mi - 0.5) * width,
+            tA,
+            width,
+            yerr=tA_err,
+            capsize=2,
+            label=f"{mname} A",
+        )
+        ax.scatter(x + (mi - 0.5) * width, tR, marker="D", color="black", zorder=3, s=20)
+    ax.axhline(0, color="gray", ls=":", lw=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(settings_order, rotation=20, ha="right")
+    ax.set_ylabel(r"mean $\tilde\alpha=\tanh(\alpha)$")
+    ax.legend(fontsize=8)
+    ax.grid(True, axis="y", ls=":", alpha=0.4)
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(args.out_dir, "partial_adversary_tanh_alpha.png"),
+        dpi=200,
+        bbox_inches="tight",
+    )
     plt.close(fig)
     print(f"OUT: {args.out_dir}")
 

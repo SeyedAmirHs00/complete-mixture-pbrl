@@ -23,7 +23,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
-from synthetic_shared_core import rowwise_corr, sigmoid_np
+from synthetic_shared_core import get_device, rowwise_corr, sigmoid_np
 
 
 def _returns(states: torch.Tensor, theta: torch.Tensor) -> torch.Tensor:
@@ -214,10 +214,11 @@ def main() -> None:
             )
             y_np[:, e] = (rng.random((seeds, m)) < sigmoid_np(betas[e] * dstar)).astype(float)
 
-        states = torch.as_tensor(states_np, dtype=torch.float32)
-        i_all = torch.as_tensor(i_all_np, dtype=torch.long)
-        j_all = torch.as_tensor(j_all_np, dtype=torch.long)
-        y = torch.as_tensor(y_np, dtype=torch.float32)
+        device = get_device()
+        states = torch.as_tensor(states_np, dtype=torch.float32, device=device)
+        i_all = torch.as_tensor(i_all_np, dtype=torch.long, device=device)
+        j_all = torch.as_tensor(j_all_np, dtype=torch.long, device=device)
+        y = torch.as_tensor(y_np, dtype=torch.float32, device=device)
 
         for method in methods:
             if method == "ttp":

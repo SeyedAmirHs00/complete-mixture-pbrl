@@ -34,6 +34,15 @@ def rowwise_corr(x: np.ndarray, y: np.ndarray, eps: float = 1e-12) -> np.ndarray
 sigmoid = sigmoid_np
 
 
+def get_device(device: Optional[torch.device] = None) -> torch.device:
+    """Resolve training device; prefer CUDA when available."""
+    if device is not None:
+        return torch.device(device) if not isinstance(device, torch.device) else device
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 @dataclass(frozen=True)
 class SharedVariant:
     name: str
@@ -170,7 +179,7 @@ def run_shared_variant(
     alpha_bar : (seeds, K)
     init_rms : float empirical init rms|Delta R|
     """
-    device = device or torch.device("cpu")
+    device = get_device(device)
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)

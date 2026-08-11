@@ -39,6 +39,11 @@ import torch
 import torch.nn as nn
 
 
+def get_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
 # DM Control / Meta-World observation sizes used in the paper.
 DEFAULT_DIN = (17, 24, 39, 78)
 DEFAULT_OUT_DIR = os.path.join("final_results", "pytorch_reward_init")
@@ -64,19 +69,21 @@ def eval_one_seed(
     seed: int,
     hidden: int,
     n_hidden: int,
+    device=None,
 ) -> Tuple[float, float]:
     """Return (std of step rewards, std of pairwise differences)."""
+    device = device or get_device()
     torch.manual_seed(seed)
-    net = build_reward_mlp(d_in, hidden=hidden, n_hidden=n_hidden)
-    x = torch.randn(n_traj, d_in)
+    net = build_reward_mlp(d_in, hidden=hidden, n_hidden=n_hidden).to(device)
+    x = torch.randn(n_traj, d_in, device=device)
     r = net(x).squeeze(-1)  # (n_traj,)
 
-    std_r = float(r.std(unbiased=False))
+    std_r = float(r.std(unbiased=False).item())
     # All unordered pairs would be O(n^2); use random pairs with replacement.
-    i = torch.randint(0, n_traj, (n_traj,))
-    j = torch.randint(0, n_traj, (n_traj,))
+    i = torch.randint(0, n_traj, (n_traj,), device=device)
+    j = torch.randint(0, n_traj, (n_traj,), device=device)
     delta = r[i] - r[j]
-    std_delta = float(delta.std(unbiased=False))
+    std_delta = float(delta.std(unbiased=False).item())
     return std_r, std_delta
 
 

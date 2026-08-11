@@ -36,7 +36,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from synthetic_shared_core import SharedVariant, rowwise_corr, run_shared_variant, sigmoid_np
+from synthetic_shared_core import SharedVariant, get_device, rowwise_corr, run_shared_variant, sigmoid_np
 
 
 @dataclass(frozen=True)
@@ -174,7 +174,7 @@ def run_mlp(
     """
     High-cap MLP; shared (i,j) across experts so many noisy votes hit the same pairs.
     """
-    device = device or torch.device("cpu")
+    device = get_device(device)
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
