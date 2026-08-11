@@ -1,0 +1,23 @@
+{
+  "architecture": "d_in -> (128 LReLU) x3 -> 1 Tanh",
+  "d_in": [
+    17,
+    24,
+    39,
+    78
+  ],
+  "hidden": 128,
+  "n_hidden": 3,
+  "n_seeds": 100,
+  "n_traj": 256,
+  "seed_offset": 0,
+  "T": 50,
+  "overall_mean_std_r": 0.025763709670864044,
+  "overall_mean_std_delta_r": 0.036275296499952675,
+  "extrapolated_std_Delta_R": 0.25763709670864043,
+  "sigma_of_std_Delta_R": 0.5640553493795853,
+  "paper_std_r": 0.025,
+  "paper_sigma_T50": 0.56,
+  "runtime_sec": 0.6034300140017876,
+  "torch_version": "1.4.0"
+}

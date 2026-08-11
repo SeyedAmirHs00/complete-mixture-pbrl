@@ -1,0 +1,25 @@
+q=0    ttp      global_med=0.953 local_med=0.955 correct=0.917
+q=0    no_alpha global_med=0.495 local_med=0.549 correct=0.958
+q=0    ds_sym   global_med=0.944 local_med=0.945 correct=0.517
+q=0.01 ttp      global_med=0.952 local_med=0.953 correct=0.925
+q=0.01 no_alpha global_med=0.450 local_med=0.511 correct=0.967
+q=0.01 ds_sym   global_med=0.945 local_med=0.944 correct=0.458
+q=0.02 ttp      global_med=0.954 local_med=0.957 correct=0.950
+q=0.02 no_alpha global_med=0.508 local_med=0.549 correct=0.975
+q=0.02 ds_sym   global_med=0.948 local_med=0.949 correct=0.533
+q=0.05 ttp      global_med=0.951 local_med=0.955 correct=0.908
+q=0.05 no_alpha global_med=0.496 local_med=0.525 correct=0.950
+q=0.05 ds_sym   global_med=0.945 local_med=0.945 correct=0.517
+q=0.1  ttp      global_med=0.955 local_med=0.957 correct=0.983
+q=0.1  no_alpha global_med=0.485 local_med=0.538 correct=0.942
+q=0.1  ds_sym   global_med=0.947 local_med=0.945 correct=0.492
+q=0.2  ttp      global_med=0.952 local_med=0.953 correct=0.975
+q=0.2  no_alpha global_med=0.490 local_med=0.508 correct=0.925
+q=0.2  ds_sym   global_med=0.946 local_med=0.947 correct=0.400
+q=0.5  ttp      global_med=0.954 local_med=0.952 correct=0.992
+q=0.5  no_alpha global_med=0.466 local_med=0.465 correct=0.933
+q=0.5  ds_sym   global_med=0.947 local_med=0.945 correct=0.500
+q=1    ttp      global_med=0.956 local_med=0.954 correct=0.992
+q=1    no_alpha global_med=0.416 local_med=0.428 correct=0.992
+q=1    ds_sym   global_med=0.947 local_med=0.944 correct=0.500
+OUT: final_results/synthetic_overlap_sweep

@@ -1,0 +1,74 @@
+[branch] 3R1N   standard   correct=0.145 rho=-0.669 rms0=1.447 trust@flipped aR=-0.87
+[branch] 3R1N   stabilized correct=0.845 rho=+0.650 rms0=0.000 trust@correct aR=+0.86
+[branch] 3R1N   consensus  correct=0.935 rho=+0.676 rms0=1.410 trust@correct aR=+0.64
+[branch] 3R1A   standard   correct=0.370 rho=-0.249 rms0=1.437 trust@flipped aR=-0.84
+[branch] 3R1A   stabilized correct=0.995 rho=+0.943 rms0=0.000 trust@correct aR=+0.84
+[branch] 3R1A   consensus  correct=0.920 rho=+0.634 rms0=1.429 trust@correct aR=+0.63
+[branch] 1R3A   standard   correct=0.635 rho=+0.258 rms0=1.428 trust@correct aR=+0.86
+[branch] 1R3A   stabilized correct=0.005 rho=-0.943 rms0=0.000 trust@flipped aR=-0.82
+[branch] 1R3A   consensus  correct=0.045 rho=-0.685 rms0=1.458 trust@flipped aR=-0.69
+OUT branch: final_results/synthetic_shared_all\branch_symmetry
+[sigma] 3R1A    no_cons    rms=0    correct=0.995 rho=+0.943
+[sigma] 3R1A    consensus  rms=0    correct=0.890 rho=+0.599
+[sigma] 3R1A    no_cons    rms=0.05 correct=1.000 rho=+0.952
+[sigma] 3R1A    consensus  rms=0.05 correct=0.900 rho=+0.612
+[sigma] 3R1A    no_cons    rms=0.1  correct=1.000 rho=+0.952
+[sigma] 3R1A    consensus  rms=0.1  correct=0.900 rho=+0.621
+[sigma] 3R1A    no_cons    rms=0.25 correct=1.000 rho=+0.951
+[sigma] 3R1A    consensus  rms=0.25 correct=0.885 rho=+0.607
+[sigma] 3R1A    no_cons    rms=0.5  correct=0.995 rho=+0.945
+[sigma] 3R1A    consensus  rms=0.5  correct=0.930 rho=+0.650
+[sigma] 3R1A    no_cons    rms=1.4  correct=0.425 rho=-0.143
+[sigma] 3R1A    consensus  rms=1.4  correct=0.900 rho=+0.624
+[sigma] 3R1A    no_cons    rms=6    correct=0.195 rho=-0.583
+[sigma] 3R1A    consensus  rms=6    correct=0.865 rho=+0.593
+[sigma] 2R1A1N  no_cons    rms=0    correct=0.950 rho=+0.850
+[sigma] 2R1A1N  consensus  rms=0    correct=0.750 rho=+0.343
+[sigma] 2R1A1N  no_cons    rms=0.05 correct=0.940 rho=+0.835
+[sigma] 2R1A1N  consensus  rms=0.05 correct=0.700 rho=+0.295
+[sigma] 2R1A1N  no_cons    rms=0.1  correct=0.985 rho=+0.916
+[sigma] 2R1A1N  consensus  rms=0.1  correct=0.795 rho=+0.402
+[sigma] 2R1A1N  no_cons    rms=0.25 correct=0.960 rho=+0.870
+[sigma] 2R1A1N  consensus  rms=0.25 correct=0.735 rho=+0.316
+[sigma] 2R1A1N  no_cons    rms=0.5  correct=0.910 rho=+0.776
+[sigma] 2R1A1N  consensus  rms=0.5  correct=0.735 rho=+0.327
+[sigma] 2R1A1N  no_cons    rms=1.4  correct=0.435 rho=-0.123
+[sigma] 2R1A1N  consensus  rms=1.4  correct=0.715 rho=+0.322
+[sigma] 2R1A1N  no_cons    rms=6    correct=0.305 rho=-0.370
+[sigma] 2R1A1N  consensus  rms=6    correct=0.695 rho=+0.299
+[sigma] 3R1N    no_cons    rms=0    correct=0.890 rho=+0.734
+[sigma] 3R1N    consensus  rms=0    correct=0.970 rho=+0.695
+[sigma] 3R1N    no_cons    rms=0.05 correct=0.875 rho=+0.712
+[sigma] 3R1N    consensus  rms=0.05 correct=0.940 rho=+0.701
+[sigma] 3R1N    no_cons    rms=0.1  correct=0.885 rho=+0.729
+[sigma] 3R1N    consensus  rms=0.1  correct=0.925 rho=+0.660
+[sigma] 3R1N    no_cons    rms=0.25 correct=0.860 rho=+0.678
+[sigma] 3R1N    consensus  rms=0.25 correct=0.950 rho=+0.692
+[sigma] 3R1N    no_cons    rms=0.5  correct=0.955 rho=+0.860
+[sigma] 3R1N    consensus  rms=0.5  correct=0.975 rho=+0.723
+[sigma] 3R1N    no_cons    rms=1.4  correct=0.225 rho=-0.512
+[sigma] 3R1N    consensus  rms=1.4  correct=0.935 rho=+0.686
+[sigma] 3R1N    no_cons    rms=6    correct=0.025 rho=-0.900
+[sigma] 3R1N    consensus  rms=6    correct=0.945 rho=+0.695
+[sigma] 1R3A    no_cons    rms=0    correct=0.010 rho=-0.935
+[sigma] 1R3A    consensus  rms=0    correct=0.065 rho=-0.644
+[sigma] 1R3A    no_cons    rms=0.05 correct=0.005 rho=-0.943
+[sigma] 1R3A    consensus  rms=0.05 correct=0.080 rho=-0.649
+[sigma] 1R3A    no_cons    rms=0.1  correct=0.000 rho=-0.954
+[sigma] 1R3A    consensus  rms=0.1  correct=0.080 rho=-0.644
+[sigma] 1R3A    no_cons    rms=0.25 correct=0.000 rho=-0.953
+[sigma] 1R3A    consensus  rms=0.25 correct=0.060 rho=-0.677
+[sigma] 1R3A    no_cons    rms=0.5  correct=0.025 rho=-0.907
+[sigma] 1R3A    consensus  rms=0.5  correct=0.100 rho=-0.626
+[sigma] 1R3A    no_cons    rms=1.4  correct=0.595 rho=+0.180
+[sigma] 1R3A    consensus  rms=1.4  correct=0.095 rho=-0.609
+[sigma] 1R3A    no_cons    rms=6    correct=0.795 rho=+0.564
+[sigma] 1R3A    consensus  rms=6    correct=0.105 rho=-0.612
+OUT sigma: final_results/synthetic_shared_all\sigma_consensus_sweep
+[ablation] raw        correct=1.000 |corr|=0.949 aR=+0.14 aN=-0.00 aA=-0.14
+[ablation] tanh       correct=1.000 |corr|=0.963 aR=+0.17 aN=+0.00 aA=-0.16
+[ablation] maxnorm    correct=0.990 |corr|=0.956 aR=+0.84 aN=+0.00 aA=-0.86
+[ablation] full       correct=0.990 |corr|=0.952 aR=+0.83 aN=-0.02 aA=-0.83
+[ablation] no_w       correct=1.000 |corr|=0.957 aR=+0.86 aN=-0.01 aA=-0.87
+[ablation] attach_w   correct=1.000 |corr|=0.910 aR=+0.33 aN=+0.00 aA=-0.33
+OUT ablation: final_results/synthetic_shared_all\enhancement_ablation

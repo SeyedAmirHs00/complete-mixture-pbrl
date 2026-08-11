@@ -1,0 +1,133 @@
+10R0N0A      std=1.00
+  10R0N0A      sta=0.83 | sta=0.99 | con=1.00
+9R1N0A       std=0.99
+  9R1N0A       sta=0.74 | sta=1.00 | con=0.99
+8R2N0A       std=1.00
+  8R2N0A       sta=0.77 | sta=1.00 | con=1.00
+7R3N0A       std=0.99
+  7R3N0A       sta=0.74 | sta=1.00 | con=0.99
+6R4N0A       std=0.98
+  6R4N0A       sta=0.64 | sta=0.99 | con=0.98
+5R5N0A       std=0.95
+  5R5N0A       sta=0.74 | sta=0.97 | con=0.95
+4R6N0A       std=0.89
+  4R6N0A       sta=0.51 | sta=0.99 | con=0.89
+3R7N0A       std=0.88
+  3R7N0A       sta=0.64 | sta=0.96 | con=0.88
+2R8N0A       std=0.59
+  2R8N0A       sta=0.54 | sta=0.96 | con=0.59
+1R9N0A       std=0.58
+  1R9N0A       sta=0.43 | sta=0.94 | con=0.58
+0R10N0A      std=0.56
+  0R10N0A      sta=0.38 | sta=0.43 | con=0.56
+9R0N1A       std=1.00
+  9R0N1A       sta=0.82 | sta=0.99 | con=1.00
+8R1N1A       std=0.96
+  8R1N1A       sta=0.80 | sta=1.00 | con=0.96
+7R2N1A       std=0.98
+  7R2N1A       sta=0.72 | sta=1.00 | con=0.98
+6R3N1A       std=0.97
+  6R3N1A       sta=0.73 | sta=0.99 | con=0.97
+5R4N1A       std=0.95
+  5R4N1A       sta=0.60 | sta=0.98 | con=0.95
+4R5N1A       std=0.76
+  4R5N1A       sta=0.69 | sta=0.98 | con=0.76
+3R6N1A       std=0.78
+  3R6N1A       sta=0.66 | sta=1.00 | con=0.78
+2R7N1A       std=0.62
+  2R7N1A       sta=0.48 | sta=0.95 | con=0.62
+1R8N1A       std=0.46
+  1R8N1A       sta=0.56 | sta=0.44 | con=0.46
+0R9N1A       std=0.38
+  0R9N1A       sta=0.66 | sta=0.07 | con=0.38
+8R0N2A       std=0.98
+  8R0N2A       sta=0.69 | sta=1.00 | con=0.98
+7R1N2A       std=0.90
+  7R1N2A       sta=0.72 | sta=1.00 | con=0.90
+6R2N2A       std=0.95
+  6R2N2A       sta=0.69 | sta=0.99 | con=0.95
+5R3N2A       std=0.82
+  5R3N2A       sta=0.58 | sta=0.99 | con=0.82
+4R4N2A       std=0.72
+  4R4N2A       sta=0.66 | sta=1.00 | con=0.72
+3R5N2A       std=0.66
+  3R5N2A       sta=0.54 | sta=1.00 | con=0.66
+2R6N2A       std=0.51
+  2R6N2A       sta=0.49 | sta=0.51 | con=0.51
+1R7N2A       std=0.29
+  1R7N2A       sta=0.47 | sta=0.02 | con=0.29
+0R8N2A       std=0.21
+  0R8N2A       sta=0.56 | sta=0.01 | con=0.21
+7R0N3A       std=0.91
+  7R0N3A       sta=0.69 | sta=0.98 | con=0.91
+6R1N3A       std=0.87
+  6R1N3A       sta=0.60 | sta=1.00 | con=0.87
+5R2N3A       std=0.79
+  5R2N3A       sta=0.60 | sta=1.00 | con=0.79
+4R3N3A       std=0.68
+  4R3N3A       sta=0.63 | sta=1.00 | con=0.68
+3R4N3A       std=0.46
+  3R4N3A       sta=0.50 | sta=0.42 | con=0.46
+2R5N3A       std=0.39
+  2R5N3A       sta=0.45 | sta=0.00 | con=0.39
+1R6N3A       std=0.21
+  1R6N3A       sta=0.36 | sta=0.00 | con=0.21
+0R7N3A       std=0.17
+  0R7N3A       sta=0.33 | sta=0.04 | con=0.17
+6R0N4A       std=0.81
+  6R0N4A       sta=0.53 | sta=1.00 | con=0.81
+5R1N4A       std=0.70
+  5R1N4A       sta=0.53 | sta=1.00 | con=0.70
+4R2N4A       std=0.57
+  4R2N4A       sta=0.54 | sta=0.50 | con=0.57
+3R3N4A       std=0.29
+  3R3N4A       sta=0.43 | sta=0.00 | con=0.29
+2R4N4A       std=0.18
+  2R4N4A       sta=0.43 | sta=0.00 | con=0.18
+1R5N4A       std=0.14
+  1R5N4A       sta=0.37 | sta=0.01 | con=0.14
+0R6N4A       std=0.07
+  0R6N4A       sta=0.32 | sta=0.03 | con=0.07
+5R0N5A       std=0.46
+  5R0N5A       sta=0.49 | sta=0.51 | con=0.46
+4R1N5A       std=0.36
+  4R1N5A       sta=0.48 | sta=0.00 | con=0.36
+3R2N5A       std=0.20
+  3R2N5A       sta=0.42 | sta=0.00 | con=0.20
+2R3N5A       std=0.10
+  2R3N5A       sta=0.40 | sta=0.01 | con=0.10
+1R4N5A       std=0.07
+  1R4N5A       sta=0.36 | sta=0.01 | con=0.07
+0R5N5A       std=0.05
+  0R5N5A       sta=0.38 | sta=0.03 | con=0.05
+4R0N6A       std=0.18
+  4R0N6A       sta=0.36 | sta=0.02 | con=0.18
+3R1N6A       std=0.13
+  3R1N6A       sta=0.31 | sta=0.01 | con=0.13
+2R2N6A       std=0.11
+  2R2N6A       sta=0.29 | sta=0.04 | con=0.11
+1R3N6A       std=0.02
+  1R3N6A       sta=0.33 | sta=0.01 | con=0.02
+0R4N6A       std=0.04
+  0R4N6A       sta=0.42 | sta=0.02 | con=0.04
+3R0N7A       std=0.08
+  3R0N7A       sta=0.33 | sta=0.04 | con=0.08
+2R1N7A       std=0.04
+  2R1N7A       sta=0.29 | sta=0.02 | con=0.04
+1R2N7A       std=0.06
+  1R2N7A       sta=0.27 | sta=0.00 | con=0.06
+0R3N7A       std=0.02
+  0R3N7A       sta=0.14 | sta=0.00 | con=0.02
+2R0N8A       std=0.02
+  2R0N8A       sta=0.28 | sta=0.00 | con=0.02
+1R1N8A       std=0.03
+  1R1N8A       sta=0.27 | sta=0.00 | con=0.03
+0R2N8A       std=0.02
+  0R2N8A       sta=0.25 | sta=0.01 | con=0.02
+1R0N9A       std=0.01
+  1R0N9A       sta=0.28 | sta=0.01 | con=0.01
+0R1N9A       std=0.01
+  0R1N9A       sta=0.15 | sta=0.00 | con=0.01
+0R0N10A      std=0.00
+  0R0N10A      sta=0.21 | sta=0.01 | con=0.00
+OUT: final_results/synthetic_expert_ratio_sweep_K10

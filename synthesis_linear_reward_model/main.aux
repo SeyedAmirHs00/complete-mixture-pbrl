@@ -1,0 +1,290 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{christiano2017deep}
+\citation{rime}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\citation{rime}
+\citation{mcp}
+\citation{bradley1952rank}
+\citation{christiano2017deep,wirth2017survey,akrour2012april}
+\citation{christiano2017deep,pebble,ibarz2018reward}
+\citation{ouyang2022training,bai2022training,rafailov2023direct}
+\citation{pebble}
+\citation{rune}
+\citation{park2022surf}
+\citation{liu2022meta}
+\citation{sadigh2017active,biyik2018batch,biyik2020asking}
+\citation{uni_rlhf}
+\@writefile{toc}{\contentsline {paragraph}{The Core Challenge: Learning from Heterogeneous Experts.}{2}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Contributions and Key Innovations.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Preference-Based Reinforcement Learning}{2}{subsection.2.1}\protected@file@percent }
+\citation{lee2021bpref}
+\citation{lee2021bpref}
+\citation{rime}
+\citation{huang2025trend}
+\citation{mcp}
+\citation{zhang2018mixup}
+\citation{r3m}
+\citation{xie2025hsbc}
+\citation{similarity_reward_alignment}
+\citation{sun2024rethinking}
+\citation{wang2024flip,gong2025adaptive}
+\citation{raykar2010learning}
+\citation{dawid1979maximum}
+\citation{zhang2024diverging,padmakumar2024beyond}
+\citation{poddar2024vpl}
+\citation{li2025alignx}
+\citation{wang2024rlhfpoison}
+\citation{zhou2024robot_poison}
+\citation{yang2024online_attack}
+\citation{buening2025strategyproof}
+\citation{raykar2010learning,dawid1979maximum,whitehill2009whose}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Robustness to Noisy Preferences}{3}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Multi-Annotator Heterogeneity and Adversarial Feedback}{3}{subsection.2.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {Overview of the TriTrust-PBRL (TTP) framework.} TTP jointly learns a shared reward network \(R(\tau )\) and expert-specific trust parameters \(\{\alpha _k\}_{k=1}^K\) from heterogeneous preference feedback. Reliable experts (with consistent correct preferences) develop positive trust parameters (\(\alpha _k > 0\)), noisy experts (with inconsistent random feedback) evolve toward zero (\(\alpha _k \approx 0\)), and adversarial experts (with systematically flipped preferences) develop negative trust parameters (\(\alpha _k < 0\)). During gradient updates, the weighted loss components are scaled by each expert's trust: reliable experts are up-weighted, noisy experts are down-weighted, and adversarial experts are inverted and weighted. The confidence-weighted joint loss (Eq.~\ref {eq:nll}) aggregates all expert feedback while automatically adapting to their reliability, enabling robust reward learning even under adversarial corruption.}}{4}{figure.caption.3}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:ttp_overview}{{1}{4}{\textbf {Overview of the TriTrust-PBRL (TTP) framework.} TTP jointly learns a shared reward network \(R(\tau )\) and expert-specific trust parameters \(\{\alpha _k\}_{k=1}^K\) from heterogeneous preference feedback. Reliable experts (with consistent correct preferences) develop positive trust parameters (\(\alpha _k > 0\)), noisy experts (with inconsistent random feedback) evolve toward zero (\(\alpha _k \approx 0\)), and adversarial experts (with systematically flipped preferences) develop negative trust parameters (\(\alpha _k < 0\)). During gradient updates, the weighted loss components are scaled by each expert's trust: reliable experts are up-weighted, noisy experts are down-weighted, and adversarial experts are inverted and weighted. The confidence-weighted joint loss (Eq.~\ref {eq:nll}) aggregates all expert feedback while automatically adapting to their reliability, enabling robust reward learning even under adversarial corruption}{figure.caption.3}{}}
+\newlabel{fig:a3gcn}{{1}{4}{\textbf {Overview of the TriTrust-PBRL (TTP) framework.} TTP jointly learns a shared reward network \(R(\tau )\) and expert-specific trust parameters \(\{\alpha _k\}_{k=1}^K\) from heterogeneous preference feedback. Reliable experts (with consistent correct preferences) develop positive trust parameters (\(\alpha _k > 0\)), noisy experts (with inconsistent random feedback) evolve toward zero (\(\alpha _k \approx 0\)), and adversarial experts (with systematically flipped preferences) develop negative trust parameters (\(\alpha _k < 0\)). During gradient updates, the weighted loss components are scaled by each expert's trust: reliable experts are up-weighted, noisy experts are down-weighted, and adversarial experts are inverted and weighted. The confidence-weighted joint loss (Eq.~\ref {eq:nll}) aggregates all expert feedback while automatically adapting to their reliability, enabling robust reward learning even under adversarial corruption}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Proposed Method: Joint Reward and Expert Trust Learning}{4}{section.3}\protected@file@percent }
+\newlabel{sec:method}{{3}{4}{Proposed Method: Joint Reward and Expert Trust Learning}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Model and Objective}{4}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:setup}{{3.1}{4}{Model and Objective}{subsection.3.1}{}}
+\newlabel{eq:expert-logistic}{{1}{4}{Model and Objective}{equation.1}{}}
+\citation{bradley1952rank}
+\citation{pebble}
+\newlabel{eq:nll}{{2}{5}{Model and Objective}{equation.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Gradient Analysis of Expert Trust Dynamics}{5}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:alpha-analysis}{{3.2}{5}{Gradient Analysis of Expert Trust Dynamics}{subsection.3.2}{}}
+\newlabel{eq:alpha-grad}{{3}{5}{Gradient Analysis of Expert Trust Dynamics}{equation.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Reliable experts (\(\alpha _k\) increases).}{5}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Noisy experts (\(\alpha _k\) stays near zero).}{5}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adversarial experts (\(\alpha _k\) becomes negative).}{6}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Interpretation and scope.}{6}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Practical Enhancements}{6}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:cross-entropy-weight}{{3.3}{6}{Practical Enhancements}{subsection.3.3}{}}
+\citation{dawid1979maximum,raykar2010learning}
+\citation{lee2021bpref}
+\newlabel{eq:weighted-loss-basic}{{4}{7}{Practical Enhancements}{equation.4}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces TriTrust-PBRL (TTP) algorithm}}{7}{algorithm.1}\protected@file@percent }
+\newlabel{alg:joint-learning}{{1}{7}{TriTrust-PBRL (TTP) algorithm}{algorithm.1}{}}
+\newlabel{rem:dawid-skene}{{1}{7}{Relation to Dawid--Skene crowd models}{remark.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Theoretical Analysis: Identifiability}{7}{section.4}\protected@file@percent }
+\newlabel{sec:theory}{{4}{7}{Theoretical Analysis: Identifiability}{section.4}{}}
+\newlabel{lem:logistic-ident}{{1}{8}{Logistic identifiability}{lemma.1}{}}
+\newlabel{thm:identifiability}{{1}{8}{Identifiability}{theorem.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 1: Only products $\alpha _k \Delta R_{ij}$ matter.}{8}{section*.8}\protected@file@percent }
+\newlabel{eq:prod-equality}{{5}{8}{Step 1: Only products $\alpha _k \Delta R_{ij}$ matter}{equation.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 2: Per-expert equality of differences along labeled edges.}{8}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 3: Expert overlap forces a common global scaling.}{9}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 4: Global affine relation for $R$.}{9}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 5: Induced constraints on trust parameters.}{9}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 6: Completeness of the equivalence class.}{9}{section*.13}\protected@file@percent }
+\newlabel{cor:maxnorm-ident}{{1}{10}{}{corollary.1}{}}
+\newlabel{rem:theory-disjoint}{{2}{10}{Relation to the main experiments}{remark.2}{}}
+\citation{pebble}
+\citation{lee2021bpref}
+\citation{rime}
+\citation{mcp}
+\citation{haarnoja2018soft}
+\citation{lee2021bpref}
+\@writefile{toc}{\contentsline {paragraph}{Residual sign ambiguity and branch selection.}{11}{section*.14}\protected@file@percent }
+\newlabel{rem:branch-selection}{{3}{11}{Choosing the correct branch}{remark.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Post-hoc branch correction.}{11}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experiments}{11}{section.5}\protected@file@percent }
+\newlabel{sec:experiments}{{5}{11}{Experiments}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Synthetic diagnostics}{11}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:synthetic-branch}{{5.1}{11}{Synthetic diagnostics}{subsection.5.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.1}Setup}{11}{subsubsection.5.1.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Synthetic branch-symmetry diagnostic.} Correct-branch rate: fraction of seeds with \(\mathrm  {corr}(\hat  R,R^*)>0.05\) (\(200\) seeds per cell). Standard uses random \(\hat  R\); Stabilized uses near-zero \(\hat  R\); Consensus adds the consensus reward anchor \(\mathcal  {L}_{\text  {anchor}}\) to the Standard (random-\(\hat  R\)) setup.}}{12}{table.caption.16}\protected@file@percent }
+\newlabel{tab:synthetic-branch}{{1}{12}{\textbf {Synthetic branch-symmetry diagnostic.} Correct-branch rate: fraction of seeds with \(\mathrm {corr}(\hat R,R^*)>0.05\) (\(200\) seeds per cell). Standard uses random \(\hat R\); Stabilized uses near-zero \(\hat R\); Consensus adds the consensus reward anchor \(\mathcal {L}_{\text {anchor}}\) to the Standard (random-\(\hat R\)) setup}{table.caption.16}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.2}Branch-symmetry diagnostic}{12}{subsubsection.5.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.3}Expert-ratio sweep (\(K=10\))}{12}{subsubsection.5.1.3}\protected@file@percent }
+\newlabel{fig:synthetic-branch-3r1n}{{2a}{13}{3R1N}{figure.caption.17}{}}
+\newlabel{sub@fig:synthetic-branch-3r1n}{{a}{13}{3R1N}{figure.caption.17}{}}
+\newlabel{fig:synthetic-branch-3r1a}{{2b}{13}{3R1A}{figure.caption.17}{}}
+\newlabel{sub@fig:synthetic-branch-3r1a}{{b}{13}{3R1A}{figure.caption.17}{}}
+\newlabel{fig:synthetic-branch-1r3a}{{2c}{13}{1R3A}{figure.caption.17}{}}
+\newlabel{sub@fig:synthetic-branch-1r3a}{{c}{13}{1R3A}{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Per-expert normalized trust \(\bar  \alpha _k\) (mean \(\pm \) std over \(200\) seeds) for each expert mixture and training variant; experts are labeled reliable (R), noisy (N), or adversarial (A). Stabilized initialization with detached \(w_k\) assigns high, low-variance trust to the reliable majority (\(\bar  \alpha _k\approx 0.94\)) while driving the minority noisy expert toward zero and the adversarial expert negative (\(\bar  \alpha _k\approx -0.73\) under 3R1A), whereas the standard random-initialization variant leaves \(\bar  \alpha _k\) near zero on average with large seed-to-seed variance. The Consensus variant (random initialization plus the reward anchor) recovers the same sign pattern (reliable positive, noisy near zero, adversarial negative) because it regularizes the reward rather than the trust; the separation is weaker and noisier than under stabilized initialization owing to the softer reward signal. Under 1R3A the adversarial majority captures high trust while the lone reliable expert is suppressed, the trust-level signature of the flipped branch.}}{13}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:synthetic-branch}{{2}{13}{Per-expert normalized trust \(\bar \alpha _k\) (mean \(\pm \) std over \(200\) seeds) for each expert mixture and training variant; experts are labeled reliable (R), noisy (N), or adversarial (A). Stabilized initialization with detached \(w_k\) assigns high, low-variance trust to the reliable majority (\(\bar \alpha _k\approx 0.94\)) while driving the minority noisy expert toward zero and the adversarial expert negative (\(\bar \alpha _k\approx -0.73\) under 3R1A), whereas the standard random-initialization variant leaves \(\bar \alpha _k\) near zero on average with large seed-to-seed variance. The Consensus variant (random initialization plus the reward anchor) recovers the same sign pattern (reliable positive, noisy near zero, adversarial negative) because it regularizes the reward rather than the trust; the separation is weaker and noisier than under stabilized initialization owing to the softer reward signal. Under 1R3A the adversarial majority captures high trust while the lone reliable expert is suppressed, the trust-level signature of the flipped branch}{figure.caption.17}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.4}Overlap counterfactual}{13}{subsubsection.5.1.4}\protected@file@percent }
+\newlabel{fig:synthetic-ratio-sweep-branch}{{3a}{14}{Correct-branch rate}{figure.caption.18}{}}
+\newlabel{sub@fig:synthetic-ratio-sweep-branch}{{a}{14}{Correct-branch rate}{figure.caption.18}{}}
+\newlabel{fig:synthetic-ratio-sweep-trust}{{3b}{14}{Median learned adversarial trust \(\bar \alpha _A\)}{figure.caption.18}{}}
+\newlabel{sub@fig:synthetic-ratio-sweep-trust}{{b}{14}{Median learned adversarial trust \(\bar \alpha _A\)}{figure.caption.18}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Every mixture of \(n_A\) adversarial and \(n_N\) noisy experts (remainder reliable; \(100\) seeds per cell); the dashed line marks \(\#\text  {reliable}=\#\text  {adversarial}\) (\(n_N=K-2n_A\)). Standard stays at chance everywhere. Stabilized initialization shows a sharp transition exactly at the dashed line (independent of the noisy count), with adversarial trust flipping from strongly negative (\(\approx -0.65\)) to strongly positive (\(\approx +0.9\)) across it. The consensus anchor follows the same law with a softer boundary and added sensitivity to the noisy fraction.}}{14}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:synthetic-ratio-sweep}{{3}{14}{Every mixture of \(n_A\) adversarial and \(n_N\) noisy experts (remainder reliable; \(100\) seeds per cell); the dashed line marks \(\#\text {reliable}=\#\text {adversarial}\) (\(n_N=K-2n_A\)). Standard stays at chance everywhere. Stabilized initialization shows a sharp transition exactly at the dashed line (independent of the noisy count), with adversarial trust flipping from strongly negative (\(\approx -0.65\)) to strongly positive (\(\approx +0.9\)) across it. The consensus anchor follows the same law with a softer boundary and added sensitivity to the noisy fraction}{figure.caption.18}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Median global \(|\mathrm  {corr}(\hat  R,R^*)|\) for TTP as a function of the shared-pair fraction \(q\) (interquartile ranges shaded; \(120\) seeds; 3R1A). Dashed curve: within-block alignment. TTP recovers local orderings at \(q{=}0\) and global alignment once overlap couples blocks across experts.}}{15}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:synthetic-overlap-sweep}{{4}{15}{Median global \(|\mathrm {corr}(\hat R,R^*)|\) for TTP as a function of the shared-pair fraction \(q\) (interquartile ranges shaded; \(120\) seeds; 3R1A). Dashed curve: within-block alignment. TTP recovers local orderings at \(q{=}0\) and global alignment once overlap couples blocks across experts}{figure.caption.19}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.5}Partial and stochastic adversaries}{15}{subsubsection.5.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.1.6}Ablation of practical enhancements}{15}{subsubsection.5.1.6}\protected@file@percent }
+\newlabel{sec:enhancement-ablation}{{5.1.6}{15}{Ablation of practical enhancements}{subsubsection.5.1.6}{}}
+\citation{pebble}
+\citation{lee2021bpref}
+\newlabel{fig:partial-adversary-branch}{{5a}{16}{Correct-branch rate}{figure.caption.20}{}}
+\newlabel{sub@fig:partial-adversary-branch}{{a}{16}{Correct-branch rate}{figure.caption.20}{}}
+\newlabel{fig:partial-adversary-trust}{{5b}{16}{Recovered trust}{figure.caption.20}{}}
+\newlabel{sub@fig:partial-adversary-trust}{{b}{16}{Recovered trust}{figure.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Partial and stochastic adversaries (3R1A; \(200\) seeds) for the Stabilized and Consensus branch-symmetry fixes across adversary strengths. Both remain robust well beyond the perfect-flip anti-oracle used in the robotics experiments. Median learned \(\bar  \alpha \) for the adversarial expert (bars) and for the reliable experts (diamond markers). Reliable experts keep high trust throughout, while the adversary's trust rises monotonically from strongly negative (perfect flip) toward positive as it behaves reliably more often, so clean inversion arises only under strong, near-deterministic corruption.}}{16}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:partial-adversary}{{5}{16}{Partial and stochastic adversaries (3R1A; \(200\) seeds) for the Stabilized and Consensus branch-symmetry fixes across adversary strengths. Both remain robust well beyond the perfect-flip anti-oracle used in the robotics experiments. Median learned \(\bar \alpha \) for the adversarial expert (bars) and for the reliable experts (diamond markers). Reliable experts keep high trust throughout, while the adversary's trust rises monotonically from strongly negative (perfect flip) toward positive as it behaves reliably more often, so clean inversion arises only under strong, near-deterministic corruption}{figure.caption.20}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Ablation of practical enhancements (3R1N1A; stabilized \(\hat  R\); \(200\) seeds).} Checkmarks indicate components enabled. Trust is mean \(\bar  \alpha _k\) over experts of each type; reward alignment is \(|\mathrm  {corr}(\hat  R,R^*)|\).}}{16}{table.caption.21}\protected@file@percent }
+\newlabel{tab:enhancement-ablation}{{2}{16}{\textbf {Ablation of practical enhancements (3R1N1A; stabilized \(\hat R\); \(200\) seeds).} Checkmarks indicate components enabled. Trust is mean \(\bar \alpha _k\) over experts of each type; reward alignment is \(|\mathrm {corr}(\hat R,R^*)|\)}{table.caption.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}End-to-end policy learning}{16}{subsection.5.2}\protected@file@percent }
+\newlabel{sec:policy-experiments}{{5.2}{16}{End-to-end policy learning}{subsection.5.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Domains.}{16}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Multi-expert configuration.}{16}{section*.24}\protected@file@percent }
+\citation{pebble}
+\citation{haarnoja2018soft}
+\citation{pebble}
+\citation{rime}
+\citation{mcp}
+\citation{haarnoja2018soft}
+\citation{sun2024rethinking,wang2024flip,gong2025adaptive,huang2025trend,zhang2024diverging}
+\citation{dawid1979maximum,raykar2010learning,whitehill2009whose}
+\newlabel{fig:env_cheetah}{{6a}{17}{\textsc {DMControl} Cheetah-Run}{figure.caption.23}{}}
+\newlabel{sub@fig:env_cheetah}{{a}{17}{\textsc {DMControl} Cheetah-Run}{figure.caption.23}{}}
+\newlabel{fig:env_walker}{{6b}{17}{\textsc {DMControl} Walker-Walk}{figure.caption.23}{}}
+\newlabel{sub@fig:env_walker}{{b}{17}{\textsc {DMControl} Walker-Walk}{figure.caption.23}{}}
+\newlabel{fig:env_door}{{6c}{17}{\textsc {MetaWorld} Door-Open-v2}{figure.caption.23}{}}
+\newlabel{sub@fig:env_door}{{c}{17}{\textsc {MetaWorld} Door-Open-v2}{figure.caption.23}{}}
+\newlabel{fig:env_sweep}{{6d}{17}{\textsc {MetaWorld} Sweep-Into-v2}{figure.caption.23}{}}
+\newlabel{sub@fig:env_sweep}{{d}{17}{\textsc {MetaWorld} Sweep-Into-v2}{figure.caption.23}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Experimental environments used in this work. We evaluate on two locomotion domains from \textsc  {DMControl} (top row) and two manipulation domains from \textsc  {MetaWorld} (bottom row).}}{17}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:experiment_environments}{{6}{17}{Experimental environments used in this work. We evaluate on two locomotion domains from \textsc {DMControl} (top row) and two manipulation domains from \textsc {MetaWorld} (bottom row)}{figure.caption.23}{}}
+\@writefile{toc}{\contentsline {paragraph}{Implementation details.}{17}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Baselines and metrics.}{17}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.2.1}MetaWorld Sweep-Into-v2}{17}{subsubsection.5.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adversarial experts ($\beta =[1,1,1,-1]$)}{17}{section*.27}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Evaluation success rate for MetaWorld Sweep-Into-v2 under adversarial conditions (\(\beta =[1,1,1,-1]\)).}}{18}{figure.caption.28}\protected@file@percent }
+\newlabel{fig:eval_sweepinto_adv}{{7}{18}{Evaluation success rate for MetaWorld Sweep-Into-v2 under adversarial conditions (\(\beta =[1,1,1,-1]\))}{figure.caption.28}{}}
+\@writefile{toc}{\contentsline {paragraph}{Noisy experts (\(\beta =[1,1,1,0]\)).}{18}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.2.2}MetaWorld Door-Open-v2}{18}{subsubsection.5.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adversarial experts (\(\beta =[1,1,1,-1]\)).}{18}{section*.33}\protected@file@percent }
+\newlabel{fig:alpha0_sweep_adv}{{8a}{19}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.29}{}}
+\newlabel{sub@fig:alpha0_sweep_adv}{{a}{19}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.29}{}}
+\newlabel{fig:alpha1_sweep_adv}{{8b}{19}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.29}{}}
+\newlabel{sub@fig:alpha1_sweep_adv}{{b}{19}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.29}{}}
+\newlabel{fig:alpha2_sweep_adv}{{8c}{19}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.29}{}}
+\newlabel{sub@fig:alpha2_sweep_adv}{{c}{19}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.29}{}}
+\newlabel{fig:alpha3_sweep_adv}{{8d}{19}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.29}{}}
+\newlabel{sub@fig:alpha3_sweep_adv}{{d}{19}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.29}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Learned trust trajectories on Sweep-Into-v2 under adversarial conditions.}}{19}{figure.caption.29}\protected@file@percent }
+\newlabel{fig:reward_alphas_sweep_adv}{{8}{19}{Learned trust trajectories on Sweep-Into-v2 under adversarial conditions}{figure.caption.29}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Evaluation success rate for MetaWorld Sweep-Into-v2 under noisy conditions (\(\beta =[1,1,1,0]\)).}}{19}{figure.caption.31}\protected@file@percent }
+\newlabel{fig:eval_sweepinto_noisy}{{9}{19}{Evaluation success rate for MetaWorld Sweep-Into-v2 under noisy conditions (\(\beta =[1,1,1,0]\))}{figure.caption.31}{}}
+\newlabel{fig:alpha0_sweep_noisy}{{10a}{20}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.32}{}}
+\newlabel{sub@fig:alpha0_sweep_noisy}{{a}{20}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.32}{}}
+\newlabel{fig:alpha1_sweep_noisy}{{10b}{20}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.32}{}}
+\newlabel{sub@fig:alpha1_sweep_noisy}{{b}{20}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.32}{}}
+\newlabel{fig:alpha2_sweep_noisy}{{10c}{20}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.32}{}}
+\newlabel{sub@fig:alpha2_sweep_noisy}{{c}{20}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.32}{}}
+\newlabel{fig:alpha3_sweep_noisy}{{10d}{20}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.32}{}}
+\newlabel{sub@fig:alpha3_sweep_noisy}{{d}{20}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.32}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Learned trust trajectories on Sweep-Into-v2 under noisy conditions.}}{20}{figure.caption.32}\protected@file@percent }
+\newlabel{fig:reward_alphas_sweep_noisy}{{10}{20}{Learned trust trajectories on Sweep-Into-v2 under noisy conditions}{figure.caption.32}{}}
+\@writefile{toc}{\contentsline {paragraph}{Noisy experts (\(\beta =[1,1,1,0]\)).}{20}{section*.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.2.3}\textsc  {DMControl} Cheetah-Run}{20}{subsubsection.5.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adversarial experts (\(\beta =[1,1,1,-1]\)).}{20}{section*.39}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Evaluation success rate for MetaWorld Door-Open-v2 under adversarial conditions (\(\beta =[1,1,1,-1]\)).}}{21}{figure.caption.34}\protected@file@percent }
+\newlabel{fig:eval_door_adv}{{11}{21}{Evaluation success rate for MetaWorld Door-Open-v2 under adversarial conditions (\(\beta =[1,1,1,-1]\))}{figure.caption.34}{}}
+\newlabel{fig:alpha0_door_adv}{{12a}{21}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.35}{}}
+\newlabel{sub@fig:alpha0_door_adv}{{a}{21}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.35}{}}
+\newlabel{fig:alpha1_door_adv}{{12b}{21}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.35}{}}
+\newlabel{sub@fig:alpha1_door_adv}{{b}{21}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.35}{}}
+\newlabel{fig:alpha2_door_adv}{{12c}{21}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.35}{}}
+\newlabel{sub@fig:alpha2_door_adv}{{c}{21}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.35}{}}
+\newlabel{fig:alpha3_door_adv}{{12d}{21}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.35}{}}
+\newlabel{sub@fig:alpha3_door_adv}{{d}{21}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.35}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Learned trust trajectories on Door-Open-v2 under adversarial conditions.}}{21}{figure.caption.35}\protected@file@percent }
+\newlabel{fig:reward_alphas_door_adv}{{12}{21}{Learned trust trajectories on Door-Open-v2 under adversarial conditions}{figure.caption.35}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Evaluation success rate for MetaWorld Door-Open-v2 under noisy conditions (\(\beta =[1,1,1,0]\)).}}{22}{figure.caption.37}\protected@file@percent }
+\newlabel{fig:eval_door_noisy}{{13}{22}{Evaluation success rate for MetaWorld Door-Open-v2 under noisy conditions (\(\beta =[1,1,1,0]\))}{figure.caption.37}{}}
+\newlabel{fig:alpha0_door_noisy}{{14a}{22}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.38}{}}
+\newlabel{sub@fig:alpha0_door_noisy}{{a}{22}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.38}{}}
+\newlabel{fig:alpha1_door_noisy}{{14b}{22}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.38}{}}
+\newlabel{sub@fig:alpha1_door_noisy}{{b}{22}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.38}{}}
+\newlabel{fig:alpha2_door_noisy}{{14c}{22}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.38}{}}
+\newlabel{sub@fig:alpha2_door_noisy}{{c}{22}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.38}{}}
+\newlabel{fig:alpha3_door_noisy}{{14d}{22}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.38}{}}
+\newlabel{sub@fig:alpha3_door_noisy}{{d}{22}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.38}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Learned trust trajectories on Door-Open-v2 under noisy conditions.}}{22}{figure.caption.38}\protected@file@percent }
+\newlabel{fig:reward_alphas_door_noisy}{{14}{22}{Learned trust trajectories on Door-Open-v2 under noisy conditions}{figure.caption.38}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces True episode reward for \textsc  {DMControl} Cheetah-Run under adversarial conditions (\(\beta =[1,1,1,-1]\)).}}{23}{figure.caption.40}\protected@file@percent }
+\newlabel{fig:eval_cheetah_adv}{{15}{23}{True episode reward for \textsc {DMControl} Cheetah-Run under adversarial conditions (\(\beta =[1,1,1,-1]\))}{figure.caption.40}{}}
+\newlabel{fig:alpha0_cheetah_adv}{{16a}{23}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.41}{}}
+\newlabel{sub@fig:alpha0_cheetah_adv}{{a}{23}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.41}{}}
+\newlabel{fig:alpha1_cheetah_adv}{{16b}{23}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.41}{}}
+\newlabel{sub@fig:alpha1_cheetah_adv}{{b}{23}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.41}{}}
+\newlabel{fig:alpha2_cheetah_adv}{{16c}{23}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.41}{}}
+\newlabel{sub@fig:alpha2_cheetah_adv}{{c}{23}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.41}{}}
+\newlabel{fig:alpha3_cheetah_adv}{{16d}{23}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.41}{}}
+\newlabel{sub@fig:alpha3_cheetah_adv}{{d}{23}{Expert 3 (\(\beta _3=-1\), adversarial)}{figure.caption.41}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Learned trust trajectories on Cheetah-Run under adversarial conditions.}}{23}{figure.caption.41}\protected@file@percent }
+\newlabel{fig:reward_alphas_cheetah_adv}{{16}{23}{Learned trust trajectories on Cheetah-Run under adversarial conditions}{figure.caption.41}{}}
+\@writefile{toc}{\contentsline {paragraph}{Noisy experts (\(\beta =[1,1,1,0]\)).}{24}{section*.42}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces True episode reward for \textsc  {DMControl} Cheetah-Run under noisy conditions (\(\beta =[1,1,1,0]\)).}}{24}{figure.caption.43}\protected@file@percent }
+\newlabel{fig:eval_cheetah_noisy}{{17}{24}{True episode reward for \textsc {DMControl} Cheetah-Run under noisy conditions (\(\beta =[1,1,1,0]\))}{figure.caption.43}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.2.4}Feedback Efficiency: \textsc  {DMControl} Walker-Walk}{24}{subsubsection.5.2.4}\protected@file@percent }
+\newlabel{fig:alpha0_cheetah_noisy}{{18a}{25}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.44}{}}
+\newlabel{sub@fig:alpha0_cheetah_noisy}{{a}{25}{Expert 0 (\(\beta _0=1\), reliable)}{figure.caption.44}{}}
+\newlabel{fig:alpha1_cheetah_noisy}{{18b}{25}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.44}{}}
+\newlabel{sub@fig:alpha1_cheetah_noisy}{{b}{25}{Expert 1 (\(\beta _1=1\), reliable)}{figure.caption.44}{}}
+\newlabel{fig:alpha2_cheetah_noisy}{{18c}{25}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.44}{}}
+\newlabel{sub@fig:alpha2_cheetah_noisy}{{c}{25}{Expert 2 (\(\beta _2=1\), reliable)}{figure.caption.44}{}}
+\newlabel{fig:alpha3_cheetah_noisy}{{18d}{25}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.44}{}}
+\newlabel{sub@fig:alpha3_cheetah_noisy}{{d}{25}{Expert 3 (\(\beta _3=0\), noisy)}{figure.caption.44}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Learned trust trajectories on Cheetah-Run under noisy conditions.}}{25}{figure.caption.44}\protected@file@percent }
+\newlabel{fig:reward_alphas_cheetah_noisy}{{18}{25}{Learned trust trajectories on Cheetah-Run under noisy conditions}{figure.caption.44}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Limitations and Future Directions}{25}{subsection.5.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Performance heatmap for \textsc  {DMControl} Walker-Walk showing final episode reward as a function of feedback amount and expert reliability configuration.}}{26}{figure.caption.45}\protected@file@percent }
+\newlabel{fig:heatmap_walker}{{19}{26}{Performance heatmap for \textsc {DMControl} Walker-Walk showing final episode reward as a function of feedback amount and expert reliability configuration}{figure.caption.45}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Additional Walker-Walk heatmap showing final episode reward across feedback budgets and expert mixtures.}}{26}{figure.caption.46}\protected@file@percent }
+\newlabel{fig:heatmap1_walker}{{20}{26}{Additional Walker-Walk heatmap showing final episode reward across feedback budgets and expert mixtures}{figure.caption.46}{}}
+\bibstyle{unsrtnat}
+\bibdata{references}
+\bibcite{christiano2017deep}{{1}{2017}{{Christiano et~al.}}{{Christiano, Leike, Brown, Martic, Legg, and Amodei}}}
+\bibcite{rime}{{2}{2024}{{Cheng et~al.}}{{Cheng, Xiong, Dai, Miao, Lv, and Wang}}}
+\bibcite{mcp}{{3}{2024}{{Heo et~al.}}{{Heo, Lee, Kim, Kwak, Park, and Kim}}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{27}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{6}{27}{Conclusion}{section.6}{}}
+\bibcite{bradley1952rank}{{4}{1952}{{Bradley and Terry}}{{}}}
+\bibcite{wirth2017survey}{{5}{2017}{{Wirth et~al.}}{{Wirth, Akrour, Neumann, and F{\"u}rnkranz}}}
+\bibcite{akrour2012april}{{6}{2012}{{Akrour et~al.}}{{Akrour, Schoenauer, and Sebag}}}
+\bibcite{pebble}{{7}{2021{}}{{Lee et~al.}}{{Lee, Smith, and Abbeel}}}
+\bibcite{ibarz2018reward}{{8}{2018}{{Ibarz et~al.}}{{Ibarz, Leike, Pohlen, Irving, Legg, and Amodei}}}
+\bibcite{ouyang2022training}{{9}{2022}{{Ouyang et~al.}}{{Ouyang, Wu, Jiang, et~al.}}}
+\bibcite{bai2022training}{{10}{2022}{{Bai et~al.}}{{Bai, Jones, Ndousse, et~al.}}}
+\bibcite{rafailov2023direct}{{11}{2023}{{Rafailov et~al.}}{{Rafailov, Sharma, Mitchell, Ermon, Manning, and Finn}}}
+\bibcite{rune}{{12}{2022}{{Liang et~al.}}{{Liang, Shu, Lee, and Abbeel}}}
+\bibcite{park2022surf}{{13}{2022}{{Park et~al.}}{{Park, Seo, Shin, Lee, Abbeel, and Lee}}}
+\bibcite{liu2022meta}{{14}{2022}{{Liu et~al.}}{{Liu, Bai, Du, and Yang}}}
+\bibcite{sadigh2017active}{{15}{2017}{{Sadigh et~al.}}{{Sadigh, Dragan, Sastry, and Seshia}}}
+\bibcite{biyik2018batch}{{16}{2018}{{Biyik and Sadigh}}{{}}}
+\bibcite{biyik2020asking}{{17}{2020}{{Biyik et~al.}}{{Biyik, Huynh, Kochenderfer, and Sadigh}}}
+\bibcite{uni_rlhf}{{18}{2024}{{Yuan et~al.}}{{Yuan, Hao, Ma, Dong, et~al.}}}
+\bibcite{lee2021bpref}{{19}{2021{}}{{Lee et~al.}}{{Lee, Smith, Dragan, and Abbeel}}}
+\bibcite{huang2025trend}{{20}{2025}{{Huang et~al.}}{{Huang, Levy, Gupta, Ekpo, Zheng, and Shrivastava}}}
+\bibcite{zhang2018mixup}{{21}{2018}{{Zhang et~al.}}{{Zhang, Cisse, Dauphin, and Lopez-Paz}}}
+\bibcite{r3m}{{22}{2024}{{Bukharin et~al.}}{{Bukharin, Hong, Jiang, Li, Zhang, Zhang, and Zhao}}}
+\bibcite{xie2025hsbc}{{23}{2025}{{Xie et~al.}}{{Xie, Zhang, Feng, and Jin}}}
+\bibcite{similarity_reward_alignment}{{24}{2025}{{Rajaram et~al.}}{{Rajaram, Cotton, and Sinz}}}
+\bibcite{sun2024rethinking}{{25}{2025}{{Sun et~al.}}{{Sun, Shen, and Ton}}}
+\bibcite{wang2024flip}{{26}{2024{}}{{Wang et~al.}}{{}}}
+\bibcite{gong2025adaptive}{{27}{2025}{{Gong et~al.}}{{Gong, Lu, Lu, Zhou, et~al.}}}
+\bibcite{raykar2010learning}{{28}{2010}{{Raykar et~al.}}{{Raykar, Yu, Zhao, et~al.}}}
+\bibcite{dawid1979maximum}{{29}{1979}{{Dawid and Skene}}{{}}}
+\bibcite{zhang2024diverging}{{30}{2024}{{Zhang et~al.}}{{Zhang, Wang, Hwang, et~al.}}}
+\bibcite{padmakumar2024beyond}{{31}{2024}{{Padmakumar et~al.}}{{Padmakumar, Jin, Kirk, and He}}}
+\bibcite{poddar2024vpl}{{32}{2024}{{Poddar et~al.}}{{Poddar, Wan, Ivison, Gupta, and Jaques}}}
+\bibcite{li2025alignx}{{33}{2025}{{Li et~al.}}{{Li, Guan, Wu, Wu, and Yan}}}
+\bibcite{wang2024rlhfpoison}{{34}{2024{}}{{Wang et~al.}}{{Wang, Wu, Chen, Vorobeychik, and Xiao}}}
+\bibcite{zhou2024robot_poison}{{35}{2024}{{Zhou et~al.}}{{Zhou, Gao, and Qi}}}
+\bibcite{yang2024online_attack}{{36}{2024}{{Yang et~al.}}{{Yang, Lyu, Liu, and Lai}}}
+\bibcite{buening2025strategyproof}{{37}{2025}{{Kleine~Buening et~al.}}{{Kleine~Buening, Gan, Mandal, and Kwiatkowska}}}
+\bibcite{whitehill2009whose}{{38}{2009}{{Whitehill et~al.}}{{Whitehill, Wu, Bergsma, Movellan, and Ruvolo}}}
+\bibcite{haarnoja2018soft}{{39}{2018}{{Haarnoja et~al.}}{{Haarnoja, Zhou, Abbeel, and Levine}}}
+\gdef \@abspage@last{29}

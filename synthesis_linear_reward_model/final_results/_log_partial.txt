@@ -1,0 +1,11 @@
+[partial] perfect_flip stabilized correct=0.990 aR=+0.82 aA=-0.83
+[partial] perfect_flip consensus  correct=0.895 aR=+0.47 aA=-0.49
+[partial] beta_-0.5    stabilized correct=0.995 aR=+0.85 aA=-0.44
+[partial] beta_-0.5    consensus  correct=0.920 aR=+0.56 aA=-0.35
+[partial] beta_-0.25   stabilized correct=0.990 aR=+0.84 aA=-0.21
+[partial] beta_-0.25   consensus  correct=0.915 aR=+0.58 aA=-0.19
+[partial] stoch_p0.5   stabilized correct=0.860 aR=+0.62 aA=-0.00
+[partial] stoch_p0.5   consensus  correct=0.945 aR=+0.61 aA=+0.00
+[partial] stoch_p0.25  stabilized correct=0.820 aR=+0.55 aA=+0.21
+[partial] stoch_p0.25  consensus  correct=0.975 aR=+0.65 aA=+0.36
+OUT: final_results/synthetic_partial_adversary
