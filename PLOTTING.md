@@ -51,7 +51,7 @@ Figures land in:
 
 ```text
 results/exp_pebble_mixture_zero_last/<env>/
-  learning_curve_<metric>.png|.pdf
+  learning_curve_<metric>.png|.pdf   # primary + episode_reward + true_episode_reward
   final_bar_<metric>.png|.pdf
   alphas.png|.pdf                 # if reward.csv present
   expert_coefficients.png|.pdf
@@ -60,6 +60,8 @@ results/exp_pebble_mixture_zero_last/<env>/
 results/exp_pebble_mixture_zero_last/
   cross_env_learning_curves.png|.pdf   # when ≥2 envs plotted
 ```
+
+By default each environment gets learning curves and final bars for the **primary metric** (MetaWorld: `success_rate`; DM Control: `true_episode_reward`) **plus** `episode_reward` and `true_episode_reward` whenever those columns exist in `eval.csv`.
 
 ---
 
@@ -199,8 +201,8 @@ Curve labels:
 
 | File | Description |
 |---|---|
-| `learning_curve_<metric>.png` | Mean metric vs env steps (± CI when >1 seed) |
-| `final_bar_<metric>.png` | Last-`N` mean per series/config |
+| `learning_curve_<metric>.png` | Mean metric vs env steps (± CI when >1 seed). Generated for primary metric plus `episode_reward` and `true_episode_reward`. |
+| `final_bar_<metric>.png` | Last-`N` mean per series/config (same metrics as above) |
 | `alphas.png` | Per-expert trust parameters \(\alpha_k\) from `reward.csv` |
 | `expert_coefficients.png` | Softmax-style expert coefficients |
 | `alpha_abs_sum.png` | \(\|\alpha\|_1\) over training |

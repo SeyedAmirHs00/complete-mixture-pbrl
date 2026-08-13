@@ -11,24 +11,22 @@ Expected on-disk layout (Hydra run folders)::
             reward/reward.csv   # optional (alphas, expert coefs)
 
 Works for ``exp_pebble_mixture_zero_last`` and any similarly structured tree.
+Incomplete seeds are NaN-padded so curves span the longest run (max step).
 
 Examples
 --------
-  # Plot everything under zero_last
-  python plot_experiments.py --root exp_pebble_mixture_zero_last
+  # One figure: every seed as a line + mean ± CI on the same axes
+  python plot_experiments.py --root exp_pebble_mixture_zero_last_wk_sgd
+  python plot_experiments.py --root exp_pebble_mixture_zero_last_wk_sgd --env sweep_into
 
-  # One environment
-  python plot_experiments.py --root exp_pebble_mixture_zero_last --env walker_walk
+  # Conclusion graphs (mean ± SEM only)
+  python plot_experiments.py --series exp_pebble_mixture_zero_last_wk_sgd --env sweep_into
 
-  # Paper envs (aliases + Hydra folder names both accepted)
-  python plot_experiments.py --root exp_pebble_mixture_zero_last \\
-      --envs walker_walk cheetah_run door_open sweep_into
-
-  # Compare two experiment roots as named series
+  # Overlay several experiments on one conclusion plot
   python plot_experiments.py \\
       --series zero_last:exp_pebble_mixture_zero_last \\
-      --series baseline:exp_pebble_mixture \\
-      --env walker_walk
+      --series wk_sgd:exp_pebble_mixture_zero_last_wk_sgd \\
+      --env sweep_into
 
 See ``PLOTTING.md`` for the full guide.
 """
@@ -164,6 +162,16 @@ def default_metric_for_env(env: str) -> str:
     return "true_episode_reward"
 
 
+def eval_metrics_for_env(env: str, primary: Optional[str] = None) -> List[str]:
+    """Eval CSV columns to plot: primary metric plus return columns when present."""
+    primary = primary or default_metric_for_env(env)
+    metrics: List[str] = []
+    for m in (primary, "true_episode_reward", "episode_reward"):
+        if m not in metrics:
+            metrics.append(m)
+    return metrics
+
+
 def pretty_metric(metric: str) -> str:
     return {
         "true_episode_reward": "True episode return",
@@ -244,39 +252,79 @@ def find_csv_files(
 # ---------------------------------------------------------------------------
 
 
+def align_to_max_steps(
+    xs: Sequence[np.ndarray],
+    ys: Sequence[np.ndarray],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Map seed series onto the union of step grids (max coverage). Missing → NaN.
+
+    ``ys[i]`` is 1D ``(n_steps,)`` or 2D ``(n_steps, n_ch)``.
+    Returns ``(x_union, Y)`` with ``Y`` shape ``(n_seeds, n_union[, n_ch])``.
+    """
+    if not xs:
+        raise ValueError("No series to align")
+    x_union = np.unique(np.concatenate([np.asarray(x, dtype=float) for x in xs]))
+    if x_union.size == 0:
+        raise ValueError("Seed runs have no x values")
+
+    extra_shape = np.asarray(ys[0], dtype=float).shape[1:]
+    Y = np.full((len(ys), x_union.size, *extra_shape), np.nan, dtype=float)
+    pos = {float(v): j for j, v in enumerate(x_union)}
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        for k, xv in enumerate(x):
+            j = pos.get(float(xv))
+            if j is not None:
+                Y[i, j] = y[k]
+    return x_union, Y
+
+
 def load_seed_series(
     csv_files: Sequence[str], metric: str, x_col: str = "step"
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Return ``(x, Y)`` with ``Y`` shape ``(n_seeds, n_steps)`` on a shared x grid."""
+    x, Y, _ = load_seed_series_labeled(csv_files, metric, x_col=x_col)
+    return x, Y
+
+
+def load_seed_series_labeled(
+    csv_files: Sequence[str], metric: str, x_col: str = "step"
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """Return ``(x, Y, labels)`` with ``Y`` shape ``(n_seeds, n_steps)``.
+
+    ``x`` spans the longest seed (union of steps). Shorter runs are NaN-padded
+    so mean ± CI still cover the full horizon.
+    """
     series: List[np.ndarray] = []
     xs: List[np.ndarray] = []
+    labels: List[str] = []
     for path in csv_files:
         df = pd.read_csv(path)
         if x_col not in df.columns or metric not in df.columns:
             continue
         xs.append(df[x_col].to_numpy(dtype=float))
         series.append(df[metric].to_numpy(dtype=float))
+        seed = parse_seed_from_path(path)
+        labels.append(f"seed{seed}" if seed is not None else os.path.basename(path))
 
     if not series:
         raise ValueError(f"No usable series for metric={metric!r}")
 
-    common_x = xs[0]
-    for x in xs[1:]:
-        common_x = np.intersect1d(common_x, x)
-    if common_x.size == 0:
-        raise ValueError("Seed runs have no overlapping x values")
-
-    Y = np.stack([s[np.isin(x, common_x)] for s, x in zip(series, xs)], axis=0)
-    return common_x, Y
+    x_union, Y = align_to_max_steps(xs, series)
+    return x_union, Y, labels
 
 
 def aggregate(Y: np.ndarray, ci: str = "sem") -> Tuple[np.ndarray, np.ndarray]:
     mean = np.nanmean(Y, axis=0)
-    std = np.nanstd(Y, axis=0, ddof=1) if Y.shape[0] > 1 else np.zeros_like(mean)
+    n_valid = np.sum(np.isfinite(Y), axis=0).astype(float)
+    with np.errstate(invalid="ignore"):
+        std = np.nanstd(Y, axis=0, ddof=1)
+    std = np.where(n_valid > 1, std, 0.0)
     if ci == "std":
         band = std
     elif ci == "sem":
-        band = std / np.sqrt(max(Y.shape[0], 1))
+        band = std / np.sqrt(np.maximum(n_valid, 1.0))
     elif ci == "none":
         band = np.zeros_like(mean)
     else:
@@ -287,20 +335,35 @@ def aggregate(Y: np.ndarray, ci: str = "sem") -> Tuple[np.ndarray, np.ndarray]:
 def smooth_curve(y: np.ndarray, window: int) -> np.ndarray:
     if window is None or window <= 1:
         return y
-    kernel = np.ones(window, dtype=float) / window
-    pad = window // 2
-    yp = np.pad(y, (pad, window - 1 - pad), mode="edge")
-    return np.convolve(yp, kernel, mode="valid")
+    return (
+        pd.Series(np.asarray(y, dtype=float))
+        .rolling(window=window, center=True, min_periods=1)
+        .mean()
+        .to_numpy()
+    )
+
+
+def trailing_seed_scores(Y: np.ndarray, last_n: int) -> np.ndarray:
+    """Last ``last_n`` *finite* eval points per seed (each seed's own horizon)."""
+    scores = np.full(Y.shape[0], np.nan, dtype=float)
+    for i in range(Y.shape[0]):
+        finite = Y[i][np.isfinite(Y[i])]
+        if finite.size == 0:
+            continue
+        n = min(last_n, int(finite.size))
+        scores[i] = float(np.mean(finite[-n:]))
+    return scores
 
 
 def load_reward_channels(
     reward_files: Sequence[str],
     col_regex: str,
     max_points: int = 400,
-) -> Optional[Tuple[np.ndarray, np.ndarray, List[str]]]:
-    """Load aligned reward CSV channels → ``(x, Y[n_seeds,n_steps,n_ch], col_names)``."""
+) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
+    """Load aligned reward CSV channels → ``(x, Y[n_seeds,n_steps,n_ch], col_names, seed_labels)``."""
     seed_mats: List[np.ndarray] = []
     xs: List[np.ndarray] = []
+    labels: List[str] = []
     cols_ref: Optional[List[str]] = None
     for path in reward_files:
         df = pd.read_csv(path)
@@ -318,23 +381,21 @@ def load_reward_channels(
                 continue
         xs.append(df["step"].to_numpy(dtype=float))
         seed_mats.append(df[cols].to_numpy(dtype=float))
+        seed = parse_seed_from_path(path)
+        labels.append(f"seed{seed}" if seed is not None else os.path.basename(path))
 
     if not seed_mats or not cols_ref:
         return None
 
-    common_x = xs[0]
-    for xr in xs[1:]:
-        common_x = np.intersect1d(common_x, xr)
-    if common_x.size == 0:
+    try:
+        x_union, Y = align_to_max_steps(xs, seed_mats)
+    except ValueError:
         return None
-    if common_x.size > max_points:
-        idx = np.linspace(0, common_x.size - 1, max_points).astype(int)
-        common_x = common_x[idx]
-
-    mats = []
-    for mat, xr in zip(seed_mats, xs):
-        mats.append(mat[np.isin(xr, common_x)])
-    return common_x, np.stack(mats, axis=0), cols_ref
+    if x_union.size > max_points:
+        idx = np.linspace(0, x_union.size - 1, max_points).astype(int)
+        x_union = x_union[idx]
+        Y = Y[:, idx]
+    return x_union, Y, cols_ref, labels
 
 
 def load_reward_scalar(
@@ -391,6 +452,7 @@ def save_fig(fig: plt.Figure, out_path: str) -> None:
 
 
 Curve = Tuple[np.ndarray, np.ndarray, np.ndarray]  # x, mean, band
+SeedOverlay = Tuple[np.ndarray, np.ndarray, List[str]]  # x, Y[n_seeds,n_steps], seed labels
 
 
 def plot_learning_curves(
@@ -402,21 +464,63 @@ def plot_learning_curves(
     colors: Optional[Dict[str, str]] = None,
     linestyles: Optional[Dict[str, str]] = None,
     xlabel: str = "Environment steps",
+    seed_overlays: Optional[Dict[str, SeedOverlay]] = None,
+    seed_colors: Optional[Dict[str, List[str]]] = None,
 ) -> None:
-    if not curves:
+    if not curves and not seed_overlays:
         return
     fig, ax = plt.subplots(figsize=(8.0, 5.0))
+
+    x_max = 0.0
+
+    # Individual seed traces first (fainter), then mean ± CI.
+    if seed_overlays:
+        for g_i, (group, (sx, Y, labs)) in enumerate(seed_overlays.items()):
+            if sx.size:
+                x_max = max(x_max, float(np.nanmax(sx)))
+            palette = (seed_colors or {}).get(group)
+            for i in range(Y.shape[0]):
+                color = (
+                    palette[i % len(palette)]
+                    if palette
+                    else SERIES_COLORS[i % len(SERIES_COLORS)]
+                )
+                ok = np.isfinite(Y[i])
+                ax.plot(
+                    sx[ok],
+                    Y[i][ok],
+                    color=color,
+                    linewidth=1.2,
+                    alpha=0.55,
+                    label=labs[i],
+                )
+
     for i, (label, (x, mean, band)) in enumerate(curves.items()):
-        color = (colors or {}).get(label, SERIES_COLORS[i % len(SERIES_COLORS)])
+        if x.size:
+            x_max = max(x_max, float(np.nanmax(x)))
+        color = (colors or {}).get(label, "#222222")
         ls = (linestyles or {}).get(label, "-")
-        ax.plot(x, mean, color=color, linestyle=ls, label=label)
-        if np.any(band > 0):
-            ax.fill_between(x, mean - band, mean + band, color=color, alpha=0.18, linewidth=0)
+        ok = np.isfinite(mean)
+        ax.plot(x[ok], mean[ok], color=color, linestyle=ls, linewidth=2.6, label=label)
+        band_ok = ok & np.isfinite(band) & (band > 0)
+        if np.any(band_ok):
+            ax.fill_between(
+                x,
+                mean - band,
+                mean + band,
+                where=band_ok,
+                color=color,
+                alpha=0.18,
+                linewidth=0,
+            )
+
     ax.set_xlabel(xlabel)
     ax.set_ylabel(pretty_metric(metric))
     ax.set_title(title)
-    ax.legend(frameon=False, loc="best")
+    ax.legend(frameon=False, loc="best", fontsize=8)
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    if x_max > 0:
+        ax.set_xlim(left=0.0, right=x_max)
     save_fig(fig, out_path)
 
 
@@ -432,13 +536,15 @@ def plot_final_bars(
     if not finals:
         return
     labels = list(finals.keys())
-    means = [float(np.mean(finals[k])) for k in labels]
-    sems = [
-        float(np.std(finals[k], ddof=1) / np.sqrt(len(finals[k])))
-        if len(finals[k]) > 1
-        else 0.0
-        for k in labels
-    ]
+    means = [float(np.nanmean(finals[k])) for k in labels]
+    sems = []
+    for k in labels:
+        vals = np.asarray(finals[k], dtype=float)
+        n_ok = int(np.sum(np.isfinite(vals)))
+        if n_ok > 1:
+            sems.append(float(np.nanstd(vals, ddof=1) / np.sqrt(n_ok)))
+        else:
+            sems.append(0.0)
     bar_colors = [
         (colors or {}).get(k, SERIES_COLORS[i % len(SERIES_COLORS)])
         for i, k in enumerate(labels)
@@ -498,19 +604,32 @@ def plot_cross_env_curves(
 
     for ax, env in zip(axes_flat, envs):
         curves = env_curves[env]
+        x_max = 0.0
         for i, (label, (x, mean, band)) in enumerate(curves.items()):
+            if x.size:
+                x_max = max(x_max, float(np.nanmax(x)))
             color = (colors or {}).get(label, SERIES_COLORS[i % len(SERIES_COLORS)])
             ls = (linestyles or {}).get(label, "-")
-            ax.plot(x, mean, color=color, linestyle=ls, label=label)
-            if np.any(band > 0):
+            ok = np.isfinite(mean)
+            ax.plot(x[ok], mean[ok], color=color, linestyle=ls, label=label)
+            band_ok = ok & np.isfinite(band) & (band > 0)
+            if np.any(band_ok):
                 ax.fill_between(
-                    x, mean - band, mean + band, color=color, alpha=0.15, linewidth=0
+                    x,
+                    mean - band,
+                    mean + band,
+                    where=band_ok,
+                    color=color,
+                    alpha=0.15,
+                    linewidth=0,
                 )
         ax.set_title(env)
         ax.set_xlabel("Environment steps")
         ax.set_ylabel(pretty_metric(metric_by_env.get(env, "true_episode_reward")))
         ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
         ax.legend(frameon=False, fontsize=8, loc="best")
+        if x_max > 0:
+            ax.set_xlim(left=0.0, right=x_max)
 
     for ax in axes_flat[len(envs) :]:
         ax.axis("off")
@@ -545,12 +664,21 @@ def plot_channel_panels(
         mean = np.nanmean(Y, axis=0)
         n_ch = mean.shape[1]
         for k in range(n_ch):
-            ax.plot(x, mean[:, k], color=cmap(k % 10), label=f"{channel_prefix}_{k}", linewidth=1.6)
+            ok = np.isfinite(mean[:, k])
+            ax.plot(
+                x[ok],
+                mean[ok, k],
+                color=cmap(k % 10),
+                label=f"{channel_prefix}_{k}",
+                linewidth=1.6,
+            )
         ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
         ax.set_title(label)
         ax.set_xlabel("steps")
         ax.set_ylabel(ylabel)
         ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+        if x.size:
+            ax.set_xlim(left=0.0, right=float(np.nanmax(x)))
 
     for ax in axes_flat[len(labels) :]:
         ax.axis("off")
@@ -579,16 +707,31 @@ def plot_scalar_overlay(
     if not curves:
         return
     fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    x_max = 0.0
     for i, (label, (x, mean, band)) in enumerate(curves.items()):
+        if x.size:
+            x_max = max(x_max, float(np.nanmax(x)))
         color = (colors or {}).get(label, SERIES_COLORS[i % len(SERIES_COLORS)])
-        ax.plot(x, mean, color=color, label=label)
-        if np.any(band > 0):
-            ax.fill_between(x, mean - band, mean + band, color=color, alpha=0.18, linewidth=0)
+        ok = np.isfinite(mean)
+        ax.plot(x[ok], mean[ok], color=color, label=label)
+        band_ok = ok & np.isfinite(band) & (band > 0)
+        if np.any(band_ok):
+            ax.fill_between(
+                x,
+                mean - band,
+                mean + band,
+                where=band_ok,
+                color=color,
+                alpha=0.18,
+                linewidth=0,
+            )
     ax.set_xlabel("Environment steps")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.legend(frameon=False, loc="best")
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    if x_max > 0:
+        ax.set_xlim(left=0.0, right=x_max)
     save_fig(fig, out_path)
 
 
@@ -649,6 +792,42 @@ def build_curve_from_files(
     return (x, mean, band), Y, Y.shape[0]
 
 
+def group_label_for(
+    spec: SeriesSpec,
+    cfg: RunConfig,
+    *,
+    group_by: str,
+    multi_series: bool,
+    n_configs: int,
+) -> str:
+    if group_by == "series":
+        return spec.name
+    if group_by == "config":
+        return cfg.label if not multi_series else f"{spec.name} | {cfg.label}"
+    root_base = os.path.basename(os.path.normpath(spec.root))
+    named = spec.name != root_base
+    if multi_series:
+        return spec.name if n_configs == 1 else f"{spec.name} | {cfg.label}"
+    if n_configs > 1:
+        return cfg.label
+    return spec.name if named else cfg.label
+
+
+def seed_curve_label(
+    seed_lab: str,
+    group_label: str,
+    *,
+    per_seed: bool,
+    multi_series: bool,
+    n_configs: int,
+) -> str:
+    if not per_seed:
+        return group_label
+    if multi_series or n_configs > 1:
+        return f"{group_label} | {seed_lab}"
+    return seed_lab
+
+
 def plot_env(
     env: str,
     series_list: Sequence[SeriesSpec],
@@ -663,20 +842,33 @@ def plot_env(
     smooth: int,
     skip_reward: bool,
     group_by: str,
+    per_seed: bool = False,
 ) -> Optional[Dict[str, Curve]]:
-    """Plot one environment across series / configs. Returns learning curves dict."""
-    metric = metric or default_metric_for_env(env)
-    os.makedirs(out_dir, exist_ok=True)
-    print(f"\n{'=' * 72}\n{env}  metric={metric}  → {out_dir}\n{'=' * 72}")
+    """Plot one environment across series / configs. Returns primary-metric curves.
 
-    curves: Dict[str, Curve] = {}
-    finals: Dict[str, np.ndarray] = {}
+    ``per_seed=True`` (``--root``): seed lines + mean ± CI on the same figure.
+    ``per_seed=False`` (``--series``): mean ± CI conclusion plot only.
+    """
+    primary_metric = metric or default_metric_for_env(env)
+    metrics = eval_metrics_for_env(env, primary_metric)
+    os.makedirs(out_dir, exist_ok=True)
+    mode_tag = "seeds + mean" if per_seed else "series mean±CI"
+    print(
+        f"\n{'=' * 72}\n{env}  [{mode_tag}]  metrics={metrics}  → {out_dir}\n{'=' * 72}"
+    )
+
+    curves_by_metric: Dict[str, Dict[str, Curve]] = {m: {} for m in metrics}
+    finals_by_metric: Dict[str, Dict[str, np.ndarray]] = {m: {} for m in metrics}
+    seed_overlays_by_metric: Dict[str, Dict[str, SeedOverlay]] = {m: {} for m in metrics}
+    seed_colors_by_metric: Dict[str, Dict[str, List[str]]] = {m: {} for m in metrics}
     colors: Dict[str, str] = {}
     linestyles: Dict[str, str] = {}
     alpha_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     coef_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    alpha_tan_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    logit_coef_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     abs_sum_curves: Dict[str, Curve] = {}
-    summary_rows: List[dict] = []
+    summary_rows_by_metric: Dict[str, List[dict]] = {m: [] for m in metrics}
 
     multi_series = len(series_list) > 1
 
@@ -694,57 +886,131 @@ def plot_env(
             continue
 
         for cfg in configs:
-            if group_by == "series":
-                label = spec.name
-            elif group_by == "config":
-                label = cfg.label if not multi_series else f"{spec.name} | {cfg.label}"
-            else:  # auto
-                root_base = os.path.basename(os.path.normpath(spec.root))
-                named = spec.name != root_base  # user passed name:path
-                if multi_series:
-                    if len(configs) == 1:
-                        label = spec.name
-                    else:
-                        label = f"{spec.name} | {cfg.label}"
-                elif len(configs) > 1:
-                    label = cfg.label
-                else:
-                    # One series, one config: prefer explicit series name, else fb/β tag.
-                    label = spec.name if named else cfg.label
+            label = group_label_for(
+                spec,
+                cfg,
+                group_by=group_by,
+                multi_series=multi_series,
+                n_configs=len(configs),
+            )
 
             eval_files = find_csv_files(cfg.path, "eval", seeds=seeds)
-            built = build_curve_from_files(eval_files, metric, ci=ci, smooth=smooth)
-            if built is None:
+            if not eval_files:
                 print(f"  [{label}] no eval.csv")
+            elif per_seed:
+                for plot_metric in metrics:
+                    try:
+                        x, Y, seed_labs = load_seed_series_labeled(eval_files, plot_metric)
+                    except ValueError as exc:
+                        print(f"  [{label}] skip {plot_metric}: {exc}")
+                        continue
+                    Y_plot = np.stack(
+                        [smooth_curve(Y[i], smooth) if smooth > 1 else Y[i] for i in range(Y.shape[0])]
+                    )
+                    mean, band = aggregate(Y, ci=ci)
+                    if smooth > 1:
+                        mean = smooth_curve(mean, smooth)
+                        band = smooth_curve(band, smooth)
+                    mean_label = "Mean" if not multi_series and len(configs) == 1 else f"{label} mean"
+                    palette = [SERIES_COLORS[i % len(SERIES_COLORS)] for i in range(Y.shape[0])]
+                    overlay_labs = [
+                        seed_curve_label(
+                            seed_lab,
+                            label,
+                            per_seed=True,
+                            multi_series=multi_series,
+                            n_configs=len(configs),
+                        )
+                        for seed_lab in seed_labs
+                    ]
+                    seed_overlays_by_metric[plot_metric][label] = (x, Y_plot, overlay_labs)
+                    seed_colors_by_metric[plot_metric][label] = palette
+                    colors[mean_label] = spec.color if multi_series or len(configs) > 1 else "#222222"
+                    linestyles[mean_label] = spec.linestyle
+                    curves_by_metric[plot_metric][mean_label] = (x, mean, band)
+
+                    seed_scores = trailing_seed_scores(Y, last_n)
+                    n_ok = int(np.sum(np.isfinite(seed_scores)))
+                    final_mu = float(np.nanmean(seed_scores)) if n_ok else float("nan")
+                    final_sd = float(np.nanstd(seed_scores, ddof=1)) if n_ok > 1 else 0.0
+                    for i, seed_lab in enumerate(seed_labs):
+                        curve_label = overlay_labs[i]
+                        finals_by_metric[plot_metric][curve_label] = np.array([float(seed_scores[i])])
+                        colors.setdefault(curve_label, palette[i])
+                        print(
+                            f"  [{curve_label:40s}] {plot_metric:22s}  "
+                            f"last-{last_n}={seed_scores[i]:.3g}"
+                        )
+                        summary_rows_by_metric[plot_metric].append(
+                            {
+                                "series": spec.name,
+                                "env": env,
+                                "label": curve_label,
+                                "seed": seed_lab,
+                                "max_feedback": cfg.max_feedback,
+                                "teacher_betas": format_teacher_betas(cfg.teacher_betas),
+                                "metric": plot_metric,
+                                "n_seeds": 1,
+                                "final_mean": float(seed_scores[i]),
+                                "final_std": 0.0,
+                                "last_n": last_n,
+                            }
+                        )
+                    finals_by_metric[plot_metric][mean_label] = seed_scores
+                    colors.setdefault(mean_label, "#222222")
+                    print(
+                        f"  [{mean_label:40s}] {plot_metric:22s} seeds={Y.shape[0]}  "
+                        f"last-{last_n} mean={final_mu:.3g} ± {final_sd:.3g}"
+                    )
+                    summary_rows_by_metric[plot_metric].append(
+                        {
+                            "series": spec.name,
+                            "env": env,
+                            "label": mean_label,
+                            "seed": "mean",
+                            "max_feedback": cfg.max_feedback,
+                            "teacher_betas": format_teacher_betas(cfg.teacher_betas),
+                            "metric": plot_metric,
+                            "n_seeds": int(Y.shape[0]),
+                            "final_mean": final_mu,
+                            "final_std": final_sd,
+                            "last_n": last_n,
+                        }
+                    )
             else:
-                curve, Y, n_seeds = built
-                curves[label] = curve
-                n = min(last_n, Y.shape[1])
-                seed_scores = np.nanmean(Y[:, -n:], axis=1)
-                finals[label] = seed_scores
                 colors[label] = spec.color
                 linestyles[label] = spec.linestyle
-                print(
-                    f"  [{label:40s}] seeds={n_seeds}  "
-                    f"last-{n} mean={seed_scores.mean():.3g} ± "
-                    f"{(seed_scores.std(ddof=1) if n_seeds > 1 else 0.0):.3g}"
-                )
-                summary_rows.append(
-                    {
-                        "series": spec.name,
-                        "env": env,
-                        "label": label,
-                        "max_feedback": cfg.max_feedback,
-                        "teacher_betas": format_teacher_betas(cfg.teacher_betas),
-                        "metric": metric,
-                        "n_seeds": n_seeds,
-                        "final_mean": float(seed_scores.mean()),
-                        "final_std": float(
-                            seed_scores.std(ddof=1) if n_seeds > 1 else 0.0
-                        ),
-                        "last_n": n,
-                    }
-                )
+                for plot_metric in metrics:
+                    built = build_curve_from_files(
+                        eval_files, plot_metric, ci=ci, smooth=smooth
+                    )
+                    if built is None:
+                        continue
+                    curve, Y, n_seeds = built
+                    curves_by_metric[plot_metric][label] = curve
+                    seed_scores = trailing_seed_scores(Y, last_n)
+                    n_ok = int(np.sum(np.isfinite(seed_scores)))
+                    final_mu = float(np.nanmean(seed_scores)) if n_ok else float("nan")
+                    final_sd = float(np.nanstd(seed_scores, ddof=1)) if n_ok > 1 else 0.0
+                    finals_by_metric[plot_metric][label] = seed_scores
+                    print(
+                        f"  [{label:40s}] {plot_metric:22s} seeds={n_seeds}  "
+                        f"last-{last_n} mean={final_mu:.3g} ± {final_sd:.3g}"
+                    )
+                    summary_rows_by_metric[plot_metric].append(
+                        {
+                            "series": spec.name,
+                            "env": env,
+                            "label": label,
+                            "max_feedback": cfg.max_feedback,
+                            "teacher_betas": format_teacher_betas(cfg.teacher_betas),
+                            "metric": plot_metric,
+                            "n_seeds": n_seeds,
+                            "final_mean": final_mu,
+                            "final_std": final_sd,
+                            "last_n": last_n,
+                        }
+                    )
 
             if skip_reward:
                 continue
@@ -754,23 +1020,43 @@ def plot_env(
                 print(f"  [{label}] no reward.csv")
                 continue
 
-            alphas = load_reward_channels(reward_files, r"alpha_\d+")
-            if alphas is not None:
-                x_a, Y_a, cols_a = alphas
-                alpha_panels[label] = (x_a, Y_a)
-                print(f"  [{label:40s}] alphas channels={cols_a}")
+            def _add_channel_panels(
+                panels: Dict[str, Tuple[np.ndarray, np.ndarray]],
+                loaded: Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]],
+                kind: str,
+            ) -> None:
+                if loaded is None:
+                    return
+                x_ch, Y_ch, cols_ch, _seed_labs = loaded
+                panels[label] = (x_ch, Y_ch)
+                print(f"  [{label:40s}] {kind} channels={cols_ch}")
 
-            coefs = load_reward_channels(reward_files, r"expert_coef_\d+")
-            if coefs is not None:
-                x_c, Y_c, _ = coefs
-                coef_panels[label] = (x_c, Y_c)
+            _add_channel_panels(
+                alpha_panels, load_reward_channels(reward_files, r"alpha_\d+"), "alphas"
+            )
+            _add_channel_panels(
+                alpha_tan_panels,
+                load_reward_channels(reward_files, r"alpha_tan_\d+"),
+                "alpha_tan",
+            )
+            _add_channel_panels(
+                coef_panels,
+                load_reward_channels(reward_files, r"expert_coef_\d+"),
+                "expert_coef",
+            )
+            _add_channel_panels(
+                logit_coef_panels,
+                load_reward_channels(reward_files, r"expert_logits_coef_\d+"),
+                "expert_logits_coef",
+            )
 
             abs_sum = load_reward_scalar(reward_files, "alpha_abs_sum", ci=ci)
             if abs_sum is not None:
                 abs_sum_curves[label] = abs_sum
                 colors.setdefault(label, spec.color)
 
-    if not curves and not alpha_panels:
+    has_eval = any(curves_by_metric[m] for m in metrics)
+    if not has_eval and not alpha_panels:
         print(f"Nothing to plot for {env}.")
         return None
 
@@ -779,24 +1065,39 @@ def plot_env(
         title += f" ({format_teacher_betas(teacher_betas)})"
     if max_feedback is not None:
         title += f", max_feedback={max_feedback}"
+    if per_seed:
+        title += " [seeds + mean]"
 
-    if curves:
+    for plot_metric in metrics:
+        curves = curves_by_metric[plot_metric]
+        finals = finals_by_metric[plot_metric]
+        summary_rows = summary_rows_by_metric[plot_metric]
+        if not curves:
+            continue
         plot_learning_curves(
             curves,
-            metric=metric,
+            metric=plot_metric,
             title=f"Learning curve — {title}",
-            out_path=os.path.join(out_dir, f"learning_curve_{metric}.png"),
+            out_path=os.path.join(out_dir, f"learning_curve_{plot_metric}.png"),
             colors=colors,
             linestyles=linestyles,
+            seed_overlays=seed_overlays_by_metric.get(plot_metric) or None,
+            seed_colors=seed_colors_by_metric.get(plot_metric) or None,
         )
         plot_final_bars(
             finals,
-            metric=metric,
+            metric=plot_metric,
             title=f"Final performance (last {last_n} evals) — {title}",
-            out_path=os.path.join(out_dir, f"final_bar_{metric}.png"),
+            out_path=os.path.join(out_dir, f"final_bar_{plot_metric}.png"),
             last_n=last_n,
             colors=colors,
         )
+        if summary_rows:
+            table = pd.DataFrame(summary_rows)
+            table_path = os.path.join(out_dir, f"summary_{plot_metric}.csv")
+            table.to_csv(table_path, index=False, float_format="%.4f")
+            print(f"Saved {table_path}")
+            print(table.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
 
     if alpha_panels:
         plot_channel_panels(
@@ -806,6 +1107,14 @@ def plot_env(
             ylabel=r"$\alpha_k$",
             channel_prefix=r"$\alpha$",
         )
+    if alpha_tan_panels:
+        plot_channel_panels(
+            alpha_tan_panels,
+            title=rf"Trust parameters $\tilde\alpha_k$ (tanh) — {title}",
+            out_path=os.path.join(out_dir, "alpha_tan.png"),
+            ylabel=r"$\tilde\alpha_k$",
+            channel_prefix=r"$\tilde\alpha$",
+        )
     if coef_panels:
         plot_channel_panels(
             coef_panels,
@@ -813,6 +1122,14 @@ def plot_env(
             out_path=os.path.join(out_dir, "expert_coefficients.png"),
             ylabel="expert coef",
             channel_prefix="expert",
+        )
+    if logit_coef_panels:
+        plot_channel_panels(
+            logit_coef_panels,
+            title=rf"Expert logit coefficients $a_{{bar}}$ — {title}",
+            out_path=os.path.join(out_dir, "expert_logit_coefs.png"),
+            ylabel=r"$a_{bar}$",
+            channel_prefix=r"$a_{bar}$",
         )
     if abs_sum_curves:
         plot_scalar_overlay(
@@ -823,14 +1140,7 @@ def plot_env(
             colors=colors,
         )
 
-    if summary_rows:
-        table = pd.DataFrame(summary_rows)
-        table_path = os.path.join(out_dir, f"summary_{metric}.csv")
-        table.to_csv(table_path, index=False, float_format="%.4f")
-        print(f"Saved {table_path}")
-        print(table.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
-
-    return curves
+    return curves_by_metric.get(primary_metric)
 
 
 def parse_args() -> argparse.Namespace:
@@ -843,7 +1153,8 @@ def parse_args() -> argparse.Namespace:
         "--root",
         type=str,
         default=None,
-        help="Experiment root (e.g. exp_pebble_mixture_zero_last). "
+        help="Experiment root: one figure with every seed line plus mean ± CI. "
+        "Example: --root exp_pebble_mixture_zero_last_wk_sgd. "
         "Ignored if --series is set.",
     )
     p.add_argument(
@@ -851,8 +1162,9 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         metavar="NAME:PATH",
-        help="Named experiment root to overlay (repeatable). "
-        "Example: --series zero_last:exp_pebble_mixture_zero_last",
+        help="Conclusion plot: mean ± CI across seeds. Repeat to overlay roots. "
+        "Example: --series zero_last:exp_pebble_mixture_zero_last "
+        "--series wk_sgd:exp_pebble_mixture_zero_last_wk_sgd",
     )
     p.add_argument("--env", type=str, default=None, help="Single environment folder / alias")
     p.add_argument(
@@ -926,14 +1238,18 @@ def main() -> int:
     apply_style()
 
     series_list: List[SeriesSpec] = []
+    per_seed = False
     if args.series:
         for i, raw in enumerate(args.series):
             series_list.append(parse_series_arg(raw, i))
+        per_seed = False
     elif args.root:
         series_list.append(parse_series_arg(args.root, 0))
+        per_seed = True
     else:
-        # Sensible default for this project.
+        # Sensible default for this project: per-seed plots of zero_last.
         series_list.append(parse_series_arg("exp_pebble_mixture_zero_last", 0))
+        per_seed = True
 
     for spec in series_list:
         root = abs_under_repo(spec.root)
@@ -961,6 +1277,7 @@ def main() -> int:
         out_root = os.path.join(repo_root(), "results", "experiment_compare")
 
     print("Plot experiments")
+    print(f"  mode   : {'seeds+mean (--root)' if per_seed else 'conclusion (--series)'}")
     print(f"  series : {[(s.name, s.root) for s in series_list]}")
     print(f"  envs   : {env_names}")
     print(f"  out    : {out_root}")
@@ -985,6 +1302,7 @@ def main() -> int:
             smooth=args.smooth,
             skip_reward=args.skip_reward,
             group_by=args.group_by,
+            per_seed=per_seed,
         )
         if curves:
             env_curves[env] = curves

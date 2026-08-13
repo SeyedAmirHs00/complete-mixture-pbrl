@@ -32,7 +32,7 @@ EXTRA: Sequence[str] = (
     "num_interact=20000",
     "max_feedback=4000",
     "feed_type=6",
-    "reward_update=100",
+    "reward_update=50",
     "reset_update=100",
     "teacher_betas=[1,1,1,-1]",
 )
