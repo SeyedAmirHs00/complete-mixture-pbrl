@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Run zero-last TTP with Adam reward + SGD α + two-path w_k on Sweep-Into.
+"""Run zero-last TTP with SGD + two-path w_k on Door-Open (10 seeds).
 
-Entrypoint: ``train_PEBBLE_mixture_zero_last_wk_adam_sgd.py``
+Entrypoint: ``train_PEBBLE_mixture_zero_last_wk_sgd.py``
   - Stabilized init (zero last Linear of reward MLP)
-  - Reward ensemble: Adam lr=0.0003
-  - Trust α: SGD lr=0.005
-  - Two-path w_k loss (fig6)
+  - SGD reward optimizer: network lr=0.05, alpha lr=0.005
+  - Two-path w_k loss (fig6): detached w_k on reward CE; trust path on α
+
+Hyperparameters match ``scripts/door_open/run_pebble_mixture_b[1,1,1,-1].sh``
+and ``scripts/run_zero_last_no_wk.py`` (door_open block).
 
 Examples
 --------
-  python scripts/sweep_into/run_zero_last_wk_adam_sgd.py --dry-run
-  python scripts/sweep_into/run_zero_last_wk_adam_sgd.py --device cuda
-  python scripts/sweep_into/run_zero_last_wk_adam_sgd.py --seeds 12345 23451
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,-1.py --dry-run
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,-1.py --device cuda
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,-1.py --seeds 12345 23451
 """
 
 from __future__ import annotations
@@ -24,20 +26,20 @@ from typing import List, Sequence
 
 
 DEFAULT_SEEDS: Sequence[int] = (
-    34512,
-    78906,
     12345,
     23451,
+    34512,
     45123,
     51234,
     67890,
+    78906,
     89067,
     90678,
     6789,
 )
 
-SWEEP_INTO_EXTRA: Sequence[str] = (
-    "env=metaworld_sweep-into-v2",
+DOOR_OPEN_EXTRA: Sequence[str] = (
+    "env=metaworld_door-open-v2",
     "agent.params.actor_lr=0.0003",
     "agent.params.critic_lr=0.0003",
     "activation=tanh",
@@ -54,7 +56,7 @@ SWEEP_INTO_EXTRA: Sequence[str] = (
     "reward_batch=50",
     "feed_type=6",
     "teacher_betas=[1,1,1,0]",
-    "reward_lr=0.0003",
+    "reward_lr=0.05",
     "alpha_lr=0.005",
 )
 
@@ -62,10 +64,10 @@ SWEEP_INTO_EXTRA: Sequence[str] = (
 def build_cmd(seed: int, device: str) -> List[str]:
     return [
         sys.executable,
-        "train_PEBBLE_mixture_zero_last_wk_adam_sgd.py",
+        "train_PEBBLE_mixture_zero_last_wk_sgd.py",
         f"seed={seed}",
         f"device={device}",
-        *SWEEP_INTO_EXTRA,
+        *DOOR_OPEN_EXTRA,
     ]
 
 
@@ -89,16 +91,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    print("Zero-last / w_k + Adam(reward)/SGD(α) TTP — metaworld_sweep-into-v2")
+    print("Zero-last / w_k + SGD TTP — metaworld_door-open-v2  β=[1,1,1,0]")
     print(f"  device : {args.device}")
     print(f"  seeds  : {args.seeds}")
-    print("  logs   : exp_pebble_mixture_zero_last_wk_adam_sgd/metaworld_sweep-into-v2/...")
+    print("  logs   : exp_pebble_mixture_zero_last_wk_sgd/metaworld_door-open-v2/...")
 
     failures: List[tuple[int, int]] = []
     for seed in args.seeds:
         cmd = build_cmd(seed, args.device)
         print("\n" + "=" * 88)
-        print(f"[sweep_into] seed={seed}  {' '.join(cmd)}")
+        print(f"[door_open] seed={seed}  {' '.join(cmd)}")
         print("=" * 88)
         if args.dry_run:
             continue
@@ -107,7 +109,7 @@ def main() -> int:
         )
         if result.returncode != 0:
             failures.append((seed, result.returncode))
-            print(f"[FAILED] sweep_into seed={seed} (exit {result.returncode})")
+            print(f"[FAILED] door_open seed={seed} (exit {result.returncode})")
 
     if failures:
         print("\nFailed runs:")
@@ -115,7 +117,7 @@ def main() -> int:
             print(f"  seed={seed}  exit={code}")
         return 1
 
-    print(f"\nAll {len(args.seeds)} sweep_into wk_adam_sgd runs completed successfully.")
+    print(f"\nAll {len(args.seeds)} door_open wk_sgd runs completed successfully.")
     return 0
 
 

@@ -12,6 +12,7 @@ Expected on-disk layout (Hydra run folders)::
 
 Works for ``exp_pebble_mixture_zero_last`` and any similarly structured tree.
 Incomplete seeds are NaN-padded so curves span the longest run (max step).
+Figures go to ``results/<root>/<env>/b[1, 1, 1, -1]/`` (one folder per teacher β).
 
 Examples
 --------
@@ -146,6 +147,11 @@ def _format_beta_value(b: float) -> str:
 
 def format_teacher_betas(betas: Sequence[float]) -> str:
     return "[" + ", ".join(_format_beta_value(b) for b in betas) + "]"
+
+
+def teacher_betas_dirname(betas: Sequence[float]) -> str:
+    """Folder name matching Hydra's ``_b[...]_`` fragment, e.g. ``b[1, 1, 1, -1]``."""
+    return "b" + format_teacher_betas(betas)
 
 
 def parse_seed_from_path(path: str) -> Optional[int]:
@@ -770,6 +776,27 @@ def collect_env_names(series_list: Sequence[SeriesSpec], requested: Sequence[str
     return sorted(envs)
 
 
+def collect_teacher_betas(
+    series_list: Sequence[SeriesSpec],
+    env: str,
+    *,
+    teacher_betas: Optional[Sequence[float]] = None,
+    max_feedback: Optional[int] = None,
+) -> List[Optional[Tuple[float, ...]]]:
+    """Teacher-beta groups to plot for one env (one output subfolder each)."""
+    if teacher_betas is not None:
+        return [normalize_teacher_betas(teacher_betas)]
+    found: List[Tuple[float, ...]] = []
+    seen = set()
+    for spec in series_list:
+        env_dir = os.path.join(abs_under_repo(spec.root), env)
+        for cfg in list_run_configs(env_dir, env, max_feedback=max_feedback):
+            if cfg.teacher_betas not in seen:
+                seen.add(cfg.teacher_betas)
+                found.append(cfg.teacher_betas)
+    return found if found else [None]
+
+
 def build_curve_from_files(
     eval_files: Sequence[str],
     metric: str,
@@ -1223,7 +1250,7 @@ def parse_args() -> argparse.Namespace:
         "--out",
         type=str,
         default=None,
-        help="Output directory (default: results/<root_basename>/)",
+        help="Output directory (default: results/<root_basename>/<env>/b[...]/)",
     )
     p.add_argument(
         "--no-cross-env",
@@ -1282,56 +1309,76 @@ def main() -> int:
     print(f"  envs   : {env_names}")
     print(f"  out    : {out_root}")
 
-    env_curves: Dict[str, Dict[str, Curve]] = {}
+    env_curves_by_beta: Dict[Tuple[float, ...], Dict[str, Dict[str, Curve]]] = {}
     metric_by_env: Dict[str, str] = {}
     any_ok = False
 
     for env in env_names:
         metric = args.metric or default_metric_for_env(env)
         metric_by_env[env] = metric
-        curves = plot_env(
-            env,
+        beta_groups = collect_teacher_betas(
             series_list,
-            out_dir=os.path.join(out_root, env),
-            metric=metric,
+            env,
             teacher_betas=args.teacher_betas,
             max_feedback=args.max_feedback,
-            seeds=args.seeds,
-            ci=args.ci,
-            last_n=args.last_n,
-            smooth=args.smooth,
-            skip_reward=args.skip_reward,
-            group_by=args.group_by,
-            per_seed=per_seed,
         )
-        if curves:
-            env_curves[env] = curves
-            any_ok = True
+        for betas in beta_groups:
+            if betas is None:
+                out_dir = os.path.join(out_root, env)
+            else:
+                out_dir = os.path.join(out_root, env, teacher_betas_dirname(betas))
+            curves = plot_env(
+                env,
+                series_list,
+                out_dir=out_dir,
+                metric=metric,
+                teacher_betas=betas,
+                max_feedback=args.max_feedback,
+                seeds=args.seeds,
+                ci=args.ci,
+                last_n=args.last_n,
+                smooth=args.smooth,
+                skip_reward=args.skip_reward,
+                group_by=args.group_by,
+                per_seed=per_seed,
+            )
+            if curves:
+                env_curves_by_beta.setdefault(betas or (), {})[env] = curves
+                any_ok = True
 
-    if any_ok and not args.no_cross_env and len(env_curves) > 1:
-        # Color map: reuse first series color per label when possible.
-        colors: Dict[str, str] = {}
-        linestyles: Dict[str, str] = {}
-        for i, spec in enumerate(series_list):
-            colors[spec.name] = spec.color
-            linestyles[spec.name] = spec.linestyle
-        # Also color any config labels that appear.
-        seen_labels = []
-        for curves in env_curves.values():
-            for label in curves:
-                if label not in seen_labels:
-                    seen_labels.append(label)
-        for i, label in enumerate(seen_labels):
-            colors.setdefault(label, SERIES_COLORS[i % len(SERIES_COLORS)])
+    if any_ok and not args.no_cross_env:
+        for betas, env_curves in env_curves_by_beta.items():
+            if len(env_curves) <= 1:
+                continue
+            # Color map: reuse first series color per label when possible.
+            colors: Dict[str, str] = {}
+            linestyles: Dict[str, str] = {}
+            for spec in series_list:
+                colors[spec.name] = spec.color
+                linestyles[spec.name] = spec.linestyle
+            seen_labels: List[str] = []
+            for curves in env_curves.values():
+                for label in curves:
+                    if label not in seen_labels:
+                        seen_labels.append(label)
+            for i, label in enumerate(seen_labels):
+                colors.setdefault(label, SERIES_COLORS[i % len(SERIES_COLORS)])
 
-        plot_cross_env_curves(
-            env_curves,
-            metric_by_env=metric_by_env,
-            title="Cross-environment overview",
-            out_path=os.path.join(out_root, "cross_env_learning_curves.png"),
-            colors=colors,
-            linestyles=linestyles,
-        )
+            beta_tag = teacher_betas_dirname(betas) if betas else None
+            title = "Cross-environment overview"
+            if beta_tag:
+                title += f" ({beta_tag})"
+                out_name = f"cross_env_learning_curves_{beta_tag}.png"
+            else:
+                out_name = "cross_env_learning_curves.png"
+            plot_cross_env_curves(
+                env_curves,
+                metric_by_env=metric_by_env,
+                title=title,
+                out_path=os.path.join(out_root, out_name),
+                colors=colors,
+                linestyles=linestyles,
+            )
 
     if not any_ok:
         print("No plots were generated.")
