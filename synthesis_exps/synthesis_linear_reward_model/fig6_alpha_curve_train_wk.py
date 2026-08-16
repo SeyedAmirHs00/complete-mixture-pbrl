@@ -8,23 +8,45 @@ reweighted by detached confidence weights::
 Trust-path loss stays unweighted. Use ``fig6_alpha_curve_train.py`` for the
 no-w_k ablation.
 
+Methods (init)
+--------------
+  stabilized    — near-zero reward init (linear: θ=0; MLP: zero last Linear)
+  standard      — non-trivial init (linear: rms|ΔR|≈1.4; MLP: PyTorch default)
+  subtract_init — standard weight init with explicit zero functional init::
+
+                    R(x) = f_θ(x) − stopgrad(f_θ₀(x))
+
+                  so R≡0 at initialization while internal weights stay arbitrary.
+  both          — run stabilized and standard
+
+Optimizers (``--optimizer``)
+----------------------------
+  sgd      — SGD on reward + α  (default lrs 0.05 / 0.005)
+  adam     — Adam on reward + α (default lrs 3e-4 / 1e-4; like adamw.py groups)
+  adamw    — AdamW on reward + α (default lrs 3e-4 / 1e-4, wd=1e-2 on reward)
+  adam_sgd — Adam on reward, SGD on α (default lrs 3e-4 / 5e-4)
+
 Examples
 --------
   python fig6_alpha_curve_train_wk.py --seeds 100 --overwrite --plot
-  python fig6_alpha_curve_train_wk.py --reward-model mlp --methods stabilized --overwrite
+  python fig6_alpha_curve_train_wk.py --optimizer adamw --methods subtract_init --overwrite --plot
+  python fig6_alpha_curve_train_wk.py --optimizer adam_sgd --reward-model mlp --overwrite
   python fig6_alpha_curve_plot.py --run_dir results/synthetic_partial_adversary_alpha_curve_wk
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import shutil
-from typing import Any, Dict, List, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 from fig6_alpha_curve_plot import write_alpha_curve_figures
@@ -46,6 +68,93 @@ from synthetic_shared_core import (
     rowwise_corr,
     sample_expert_pairs,
 )
+
+# Default (lr_model, lr_alpha) per optimizer when CLI does not override.
+OPTIMIZER_DEFAULT_LRS: Dict[str, Tuple[float, float]] = {
+    "sgd": (0.05, 0.005),
+    "adam": (3e-4, 1e-4),
+    "adamw": (3e-4, 1e-4),
+    "adam_sgd": (3e-4, 5e-4),
+}
+DEFAULT_WEIGHT_DECAY_ADAMW = 1e-2
+
+
+@dataclass
+class OptimizerBundle:
+    """One or more optimizers stepped together (needed for adam_sgd)."""
+
+    opts: Tuple[torch.optim.Optimizer, ...]
+    name: str
+    lr_model: float
+    lr_alpha: float
+
+    def zero_grad(self) -> None:
+        for opt in self.opts:
+            opt.zero_grad(set_to_none=True)
+
+    def step(self) -> None:
+        for opt in self.opts:
+            opt.step()
+
+
+def make_optimizers(
+    name: str,
+    model_params: Iterable[nn.Parameter],
+    alpha: nn.Parameter,
+    *,
+    lr_model: float,
+    lr_alpha: float,
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
+) -> OptimizerBundle:
+    """Build reward/α optimizers.
+
+    Parameters
+    ----------
+    name :
+        ``sgd`` | ``adam`` | ``adamw`` | ``adam_sgd``
+    """
+    params = list(model_params)
+    if name == "sgd":
+        opt = torch.optim.SGD(
+            [
+                {"params": params, "lr": lr_model},
+                {"params": [alpha], "lr": lr_alpha},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adam":
+        opt = torch.optim.Adam(
+            [
+                {"params": params, "lr": lr_model},
+                {"params": [alpha], "lr": lr_alpha},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adamw":
+        opt = torch.optim.AdamW(
+            [
+                {"params": params, "lr": lr_model, "weight_decay": weight_decay_model},
+                {"params": [alpha], "lr": lr_alpha, "weight_decay": 0.0},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adam_sgd":
+        opt_reward = torch.optim.Adam(params, lr=lr_model)
+        opt_alpha = torch.optim.SGD([alpha], lr=lr_alpha)
+        return OptimizerBundle((opt_reward, opt_alpha), name, lr_model, lr_alpha)
+    raise ValueError(f"unknown optimizer={name!r}")
+
+
+def resolve_lrs(
+    optimizer: str,
+    lr_model: Optional[float],
+    lr_alpha: Optional[float],
+) -> Tuple[float, float]:
+    d_model, d_alpha = OPTIMIZER_DEFAULT_LRS[optimizer]
+    return (
+        d_model if lr_model is None else float(lr_model),
+        d_alpha if lr_alpha is None else float(lr_alpha),
+    )
 
 
 def detached_wk(trust: torch.Tensor, k: int) -> torch.Tensor:
@@ -71,8 +180,15 @@ def run_linear_with_alpha_history(
     log_every: int = 1,
     lr_theta: float = 0.05,
     lr_alpha: float = 0.005,
+    subtract_init: bool = False,
+    optimizer: str = "sgd",
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
 ) -> dict[str, Any]:
-    """Train shared linear reward with detached w_k on the reward loss."""
+    """Train shared linear reward with detached w_k on the reward loss.
+
+    If ``subtract_init``, keep a frozen θ₀ and use
+    ``R = f(θ) − stopgrad(f(θ₀))`` so R≡0 at initialization.
+    """
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
 
@@ -101,13 +217,31 @@ def run_linear_with_alpha_history(
     y_t = torch.as_tensor(y, dtype=torch.float32, device=device)
     y_bar = torch.as_tensor(consensus_target, dtype=torch.float32, device=device)
     theta = torch.nn.Parameter(torch.as_tensor(theta0, dtype=torch.float32, device=device))
+    # Frozen init snapshot for subtract_init (not optimized).
+    theta_init = theta.detach().clone()
     alpha = torch.nn.Parameter(torch.full((seeds, k), 0.01, device=device))
-    opt = torch.optim.SGD(
-        [
-            {"params": [theta], "lr": lr_theta},
-            {"params": [alpha], "lr": lr_alpha},
-        ]
+    opt = make_optimizers(
+        optimizer,
+        [theta],
+        alpha,
+        lr_model=lr_theta,
+        lr_alpha=lr_alpha,
+        weight_decay_model=weight_decay_model,
     )
+
+    def predict_R(th: torch.Tensor) -> torch.Tensor:
+        R = _segment_returns(states_t, th, True)
+        if subtract_init:
+            R = R - _segment_returns(states_t, theta_init, True).detach()
+        return R
+
+    if subtract_init:
+        with torch.no_grad():
+            r0_abs = float(predict_R(theta).abs().mean().item())
+        if r0_abs > 1e-6:
+            raise RuntimeError(
+                f"subtract_init linear failed: mean|R|={r0_abs:.3g} at init (expected ~0)"
+            )
 
     hist_rows: list[dict[str, float | int]] = []
 
@@ -135,8 +269,8 @@ def run_linear_with_alpha_history(
 
     _record(0)
     for t in range(1, steps + 1):
-        opt.zero_grad(set_to_none=True)
-        R = _segment_returns(states_t, theta, True)
+        opt.zero_grad()
+        R = predict_R(theta)
         delta = R.gather(1, i_t.reshape(seeds, -1)).reshape(seeds, k, pairs) - R.gather(
             1, j_t.reshape(seeds, -1)
         ).reshape(seeds, k, pairs)
@@ -162,7 +296,7 @@ def run_linear_with_alpha_history(
             _record(t)
 
     with torch.no_grad():
-        R = _segment_returns(states_t, theta, True).cpu().numpy()
+        R = predict_R(theta).cpu().numpy()
         trust = torch.tanh(alpha)
         tilde = trust.cpu().numpy()
         abar = (trust / trust.abs().amax(1, keepdim=True).clamp_min(1e-12)).cpu().numpy()
@@ -195,11 +329,18 @@ def train_mlp_seed_with_history(
     lr_theta: float = 0.05,
     lr_alpha: float = 0.005,
     alpha_init: float = 0.01,
+    optimizer: str = "sgd",
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
 ) -> Tuple[float, np.ndarray, np.ndarray, List[dict[str, float | int]]]:
-    """One-seed MLP TTP with detached w_k on the reward loss."""
+    """One-seed MLP TTP with detached w_k on the reward loss.
+
+    For ``method == "subtract_init"``, keep a frozen network copy θ₀ and use
+    ``R = f_θ(x) − stopgrad(f_θ₀(x))``.
+    """
     torch.manual_seed(torch_seed)
     k = y_np.shape[0]
     n, t, d = states.shape
+    subtract_init = method == "subtract_init"
 
     net = RewardMLP(d, hidden=hidden, n_layers=n_layers).to(device)
     apply_mlp_init(net, method)
@@ -216,6 +357,18 @@ def train_mlp_seed_with_history(
                 f"|W|_1={w_abs:.3g} |b|_1={b_abs:.3g} mean|R|={r_abs:.3g}"
             )
 
+    net_init = None
+    if subtract_init:
+        net_init = copy.deepcopy(net).eval()
+        for p in net_init.parameters():
+            p.requires_grad_(False)
+
+    def predict_R(st_in: torch.Tensor) -> torch.Tensor:
+        R = net(st_in)
+        if net_init is not None:
+            R = R - net_init(st_in).detach()
+        return R
+
     alpha = torch.nn.Parameter(torch.full((k,), float(alpha_init), device=device))
 
     st = torch.as_tensor(states, dtype=torch.float32, device=device)
@@ -224,11 +377,22 @@ def train_mlp_seed_with_history(
     y = torch.as_tensor(y_np, dtype=torch.float32, device=device)
     y_bar = torch.as_tensor(y_bar_np, dtype=torch.float32, device=device)
 
-    opt = torch.optim.SGD(
-        [
-            {"params": net.parameters(), "lr": lr_theta},
-            {"params": [alpha], "lr": lr_alpha},
-        ]
+    if subtract_init:
+        with torch.no_grad():
+            r0_abs = float(predict_R(st).abs().mean().item())
+        if r0_abs > 1e-6:
+            raise RuntimeError(
+                f"subtract_init MLP failed (seed_idx={seed_idx}): "
+                f"mean|R|={r0_abs:.3g} at init (expected ~0)"
+            )
+
+    opt = make_optimizers(
+        optimizer,
+        net.parameters(),
+        alpha,
+        lr_model=lr_theta,
+        lr_alpha=lr_alpha,
+        weight_decay_model=weight_decay_model,
     )
 
     hist_rows: List[dict[str, float | int]] = []
@@ -254,8 +418,8 @@ def train_mlp_seed_with_history(
 
     _record(0)
     for t_step in range(1, steps + 1):
-        opt.zero_grad(set_to_none=True)
-        R = net(st)
+        opt.zero_grad()
+        R = predict_R(st)
         delta = R[i] - R[j]  # [K, P]
 
         trust = torch.tanh(alpha)
@@ -281,7 +445,7 @@ def train_mlp_seed_with_history(
             _record(t_step)
 
     with torch.no_grad():
-        R_hat = net(st).cpu().numpy()
+        R_hat = predict_R(st).cpu().numpy()
         trust = torch.tanh(alpha)
         tilde = trust.cpu().numpy()
         abar = (trust / trust.abs().amax().clamp_min(1e-12)).cpu().numpy()
@@ -304,6 +468,10 @@ def run_mlp_with_alpha_history(
     log_every: int = 1,
     hidden: int = 128,
     n_layers: int = 3,
+    lr_theta: float = 0.05,
+    lr_alpha: float = 0.005,
+    optimizer: str = "sgd",
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
 ) -> dict[str, Any]:
     """Train MLP reward (teacher + learner) with w_k; return metrics + α history."""
     rng = np.random.default_rng(seed)
@@ -351,6 +519,10 @@ def run_mlp_with_alpha_history(
             seed_idx=s,
             device=device,
             log_every=log_every,
+            lr_theta=lr_theta,
+            lr_alpha=lr_alpha,
+            optimizer=optimizer,
+            weight_decay_model=weight_decay_model,
         )
         rhos[s] = rho
         abars[s] = abar
@@ -374,6 +546,10 @@ def run_alpha_curve_experiment(
     log_every: int = 1,
     hidden: int = 128,
     n_layers: int = 3,
+    optimizer: str = "sgd",
+    lr_model: float = 0.05,
+    lr_alpha: float = 0.005,
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
     settings: Sequence[Tuple[str, Dict[str, Any]]] | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run all (setting, method) jobs with detached w_k on the reward loss."""
@@ -382,6 +558,7 @@ def run_alpha_curve_experiment(
 
     print(
         f"[alpha-curve w_k] reward_model={reward_model} methods={methods} "
+        f"optimizer={optimizer} lr_model={lr_model} lr_alpha={lr_alpha} "
         f"seeds={seeds} steps={steps}",
         flush=True,
     )
@@ -391,10 +568,19 @@ def run_alpha_curve_experiment(
     all_hist: list[pd.DataFrame] = []
     summary_rows: list[dict[str, float | str]] = []
     idx = 0
+    opt_kw = dict(
+        lr_theta=lr_model,
+        lr_alpha=lr_alpha,
+        optimizer=optimizer,
+        weight_decay_model=weight_decay_model,
+    )
     for sname, skw in settings:
         for mname in methods:
             idx += 1
-            print(f"[alpha-curve w_k] {sname:12s} {mname:10s} ({reward_model}) ...", flush=True)
+            print(
+                f"[alpha-curve w_k] {sname:12s} {mname:10s} ({reward_model}/{optimizer}) ...",
+                flush=True,
+            )
             mkw = METHOD_SPECS[mname]
             if reward_model == "linear":
                 out = run_linear_with_alpha_history(
@@ -404,13 +590,20 @@ def run_alpha_curve_experiment(
                     n_seg=500,
                     q=0.0,
                     log_every=log_every,
+                    subtract_init=(mname == "subtract_init"),
                     **skw,
                     **mkw,
+                    **opt_kw,
                 )
             elif reward_model == "mlp":
                 if mname == "stabilized" and idx == 1:
                     print(
                         "  [mlp/stabilized] learner last Linear weight+bias zeroed at init",
+                        flush=True,
+                    )
+                if mname == "subtract_init" and idx == 1:
+                    print(
+                        "  [mlp/subtract_init] R = f_θ(x) − stopgrad(f_θ₀(x))",
                         flush=True,
                     )
                 out = run_mlp_with_alpha_history(
@@ -425,6 +618,7 @@ def run_alpha_curve_experiment(
                     hidden=hidden,
                     n_layers=n_layers,
                     **skw,
+                    **opt_kw,
                 )
             else:
                 raise ValueError(f"unknown reward_model={reward_model!r}")
@@ -434,6 +628,7 @@ def run_alpha_curve_experiment(
             hist["method"] = mname
             hist["reward_model"] = reward_model
             hist["use_wk"] = True
+            hist["optimizer"] = optimizer
             all_hist.append(hist)
 
             rho, abar, tilde = out["rho"], out["abar"], out["tilde"]
@@ -443,6 +638,9 @@ def run_alpha_curve_experiment(
                     "method": mname,
                     "reward_model": reward_model,
                     "use_wk": True,
+                    "optimizer": optimizer,
+                    "lr_model": lr_model,
+                    "lr_alpha": lr_alpha,
                     "correct": float((rho > 0.05).mean()),
                     "mean_rho": float(rho.mean()),
                     "abar_R": float(abar[:, :3].mean()),
@@ -467,8 +665,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--out_dir",
-        default="results/synthetic_partial_adversary_alpha_curve_wk",
-        help="Directory for CSV outputs.",
+        default=None,
+        help="Directory for CSV outputs "
+        "(default: results/synthetic_partial_adversary_alpha_curve_wk[_<optimizer>]).",
     )
     p.add_argument("--seeds", type=int, default=100, help="Number of MC seeds (batch size).")
     p.add_argument("--steps", type=int, default=1000)
@@ -476,15 +675,39 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--methods",
         nargs="+",
-        choices=["stabilized", "standard", "both"],
+        choices=["stabilized", "standard", "subtract_init", "both"],
         default=["stabilized"],
-        help="Init variants: stabilized, standard, or both.",
+        help="Init variants: stabilized, standard, subtract_init, or both.",
     )
     p.add_argument(
         "--reward-model",
         choices=["linear", "mlp"],
         default="linear",
         help="Reward head: linear (default) or PEBBLE-style mlp.",
+    )
+    p.add_argument(
+        "--optimizer",
+        choices=["sgd", "adam", "adamw", "adam_sgd"],
+        default="sgd",
+        help="Optimizer: sgd | adam | adamw | adam_sgd (Adam on reward, SGD on α).",
+    )
+    p.add_argument(
+        "--lr-model",
+        type=float,
+        default=None,
+        help="LR for reward net / θ (default depends on --optimizer).",
+    )
+    p.add_argument(
+        "--lr-alpha",
+        type=float,
+        default=None,
+        help="LR for trust α (default depends on --optimizer).",
+    )
+    p.add_argument(
+        "--weight-decay-model",
+        type=float,
+        default=DEFAULT_WEIGHT_DECAY_ADAMW,
+        help="Weight decay on reward params for adamw (α uses 0).",
     )
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--n-layers", type=int, default=3)
@@ -506,6 +729,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     methods = resolve_methods(args.methods)
+    lr_model, lr_alpha = resolve_lrs(args.optimizer, args.lr_model, args.lr_alpha)
+
+    if args.out_dir is None:
+        suffix = "" if args.optimizer == "sgd" else f"_{args.optimizer}"
+        args.out_dir = f"results/synthetic_partial_adversary_alpha_curve_wk{suffix}"
 
     if os.path.exists(args.out_dir):
         if not args.overwrite:
@@ -523,6 +751,10 @@ def main() -> int:
         log_every=args.log_every,
         hidden=args.hidden,
         n_layers=args.n_layers,
+        optimizer=args.optimizer,
+        lr_model=lr_model,
+        lr_alpha=lr_alpha,
+        weight_decay_model=args.weight_decay_model,
     )
 
     hist_path = os.path.join(args.out_dir, HIST_CSV_NAME)

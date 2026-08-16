@@ -6,9 +6,10 @@ Linear (batched) and MLP (per-seed) TTP runs that record raw α, tanh(α), and
 
 Methods (init)
 --------------
-  stabilized — near-zero reward init (linear: θ=0; MLP: zero last Linear)
-  standard   — non-trivial init (linear: rms|ΔR|≈1.4; MLP: PyTorch default)
-  both       — run stabilized and standard (default)
+  stabilized    — near-zero reward init (linear: θ=0; MLP: zero last Linear)
+  standard      — non-trivial init (linear: rms|ΔR|≈1.4; MLP: PyTorch default)
+  subtract_init — standard weight init, but R(x)=f_θ(x)−stopgrad(f_θ₀(x))
+  both          — run stabilized and standard
 
 Reward model
 ------------
@@ -26,6 +27,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import shutil
 from typing import Any, Dict, List, Sequence, Tuple
@@ -53,6 +55,9 @@ METHOD_SPECS: Dict[str, Dict[str, float]] = {
     # Linear head: target_rms controls θ init scale (0 ⇒ θ=0).
     "stabilized": {"target_rms": 0.0, "consensus_coef": 0.0},
     "standard": {"target_rms": 1.4, "consensus_coef": 0.0},
+    # Non-trivial weights (same as standard) but reward is
+    # R(x) = f_θ(x) − stopgrad(f_θ₀(x)) so R≡0 at initialization.
+    "subtract_init": {"target_rms": 1.4, "consensus_coef": 0.0},
 }
 
 PARTIAL_ADV_SETTINGS: List[Tuple[str, Dict[str, Any]]] = [
@@ -122,8 +127,12 @@ def run_linear_with_alpha_history(
     log_every: int = 1,
     lr_theta: float = 0.05,
     lr_alpha: float = 0.005,
+    subtract_init: bool = False,
 ) -> dict[str, Any]:
-    """Train shared linear reward; return final metrics + per-step α history."""
+    """Train shared linear reward; return final metrics + per-step α history.
+
+    If ``subtract_init``, use ``R = f(θ) − stopgrad(f(θ₀))``.
+    """
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
 
@@ -152,6 +161,7 @@ def run_linear_with_alpha_history(
     y_t = torch.as_tensor(y, dtype=torch.float32, device=device)
     y_bar = torch.as_tensor(consensus_target, dtype=torch.float32, device=device)
     theta = torch.nn.Parameter(torch.as_tensor(theta0, dtype=torch.float32, device=device))
+    theta_init = theta.detach().clone()
     alpha = torch.nn.Parameter(torch.full((seeds, k), 0.01, device=device))
     opt = torch.optim.Adam(
         [
@@ -159,6 +169,12 @@ def run_linear_with_alpha_history(
             {"params": [alpha], "lr": lr_alpha},
         ]
     )
+
+    def predict_R(th: torch.Tensor) -> torch.Tensor:
+        R = _segment_returns(states_t, th, True)
+        if subtract_init:
+            R = R - _segment_returns(states_t, theta_init, True).detach()
+        return R
 
     hist_rows: list[dict[str, float | int]] = []
 
@@ -187,7 +203,7 @@ def run_linear_with_alpha_history(
     _record(0)
     for t in range(1, steps + 1):
         opt.zero_grad(set_to_none=True)
-        R = _segment_returns(states_t, theta, True)
+        R = predict_R(theta)
         delta = R.gather(1, i_t.reshape(seeds, -1)).reshape(seeds, k, pairs) - R.gather(
             1, j_t.reshape(seeds, -1)
         ).reshape(seeds, k, pairs)
@@ -214,7 +230,7 @@ def run_linear_with_alpha_history(
             _record(t)
 
     with torch.no_grad():
-        R = _segment_returns(states_t, theta, True).cpu().numpy()
+        R = predict_R(theta).cpu().numpy()
         trust = torch.tanh(alpha)
         tilde = trust.cpu().numpy()
         abar = (trust / trust.abs().amax(1, keepdim=True).clamp_min(1e-12)).cpu().numpy()
@@ -270,8 +286,13 @@ class RewardMLP(nn.Module):
 
 
 def apply_mlp_init(net: RewardMLP, method: str) -> None:
-    """Apply learner init. Stabilized zeros the last Linear; standard keeps PyTorch default."""
-    if method == "standard":
+    """Apply learner weight init.
+
+    - stabilized: zero last Linear (⇒ R≡0 directly)
+    - standard / subtract_init: keep PyTorch default weights
+      (subtract_init zeros the *functional* output by subtracting a frozen copy)
+    """
+    if method in ("standard", "subtract_init"):
         return
     if method == "stabilized":
         net.zero_last_layer()
@@ -319,10 +340,14 @@ def train_mlp_seed_with_history(
     lr_alpha: float = 0.0003,
     alpha_init: float = 0.01,
 ) -> Tuple[float, np.ndarray, np.ndarray, List[dict[str, float | int]]]:
-    """One-seed MLP TTP; returns (rho, abar, tilde, hist_rows)."""
+    """One-seed MLP TTP; returns (rho, abar, tilde, hist_rows).
+
+    For ``method == "subtract_init"``, use ``R = f_θ(x) − stopgrad(f_θ₀(x))``.
+    """
     torch.manual_seed(torch_seed)
     k = y_np.shape[0]
     n, t, d = states.shape
+    subtract_init = method == "subtract_init"
 
     net = RewardMLP(d, hidden=hidden, n_layers=n_layers).to(device)
     # Stabilized + MLP: zero last Linear of the *learner* at step 0 (teacher untouched).
@@ -339,6 +364,18 @@ def train_mlp_seed_with_history(
                 f"stabilized MLP init failed (seed_idx={seed_idx}): "
                 f"|W|_1={w_abs:.3g} |b|_1={b_abs:.3g} mean|R|={r_abs:.3g}"
             )
+
+    net_init = None
+    if subtract_init:
+        net_init = copy.deepcopy(net).eval()
+        for p in net_init.parameters():
+            p.requires_grad_(False)
+
+    def predict_R(st_in: torch.Tensor) -> torch.Tensor:
+        R = net(st_in)
+        if net_init is not None:
+            R = R - net_init(st_in).detach()
+        return R
 
     alpha = torch.nn.Parameter(torch.full((k,), float(alpha_init), device=device))
 
@@ -379,7 +416,7 @@ def train_mlp_seed_with_history(
     _record(0)
     for t_step in range(1, steps + 1):
         opt.zero_grad(set_to_none=True)
-        R = net(st)
+        R = predict_R(st)
         delta = R[i] - R[j]  # [K, P]
 
         trust = torch.tanh(alpha)
@@ -404,7 +441,7 @@ def train_mlp_seed_with_history(
             _record(t_step)
 
     with torch.no_grad():
-        R_hat = net(st).cpu().numpy()
+        R_hat = predict_R(st).cpu().numpy()
         trust = torch.tanh(alpha)
         tilde = trust.cpu().numpy()
         abar = (trust / trust.abs().amax().clamp_min(1e-12)).cpu().numpy()
@@ -533,6 +570,7 @@ def run_alpha_curve_experiment(
                     n_seg=500,
                     q=0.0,
                     log_every=log_every,
+                    subtract_init=(mname == "subtract_init"),
                     **skw,
                     **mkw,
                 )
@@ -540,6 +578,11 @@ def run_alpha_curve_experiment(
                 if mname == "stabilized" and idx == 1:
                     print(
                         "  [mlp/stabilized] learner last Linear weight+bias zeroed at init",
+                        flush=True,
+                    )
+                if mname == "subtract_init" and idx == 1:
+                    print(
+                        "  [mlp/subtract_init] R = f_θ(x) − stopgrad(f_θ₀(x))",
                         flush=True,
                     )
                 out = run_mlp_with_alpha_history(
@@ -603,9 +646,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--methods",
         nargs="+",
-        choices=["stabilized", "standard", "both"],
+        choices=["stabilized", "standard", "subtract_init", "both"],
         default=["stabilized"],
-        help="Init variants: stabilized, standard, or both (default: both).",
+        help="Init variants: stabilized, standard, subtract_init, or both.",
     )
     p.add_argument(
         "--reward-model",
