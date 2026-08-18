@@ -45,6 +45,8 @@ RUN pip install tensorboard termcolor pybullet scikit-image
 RUN pip install hydra-core==1.0.4
 RUN pip install transformers==4.32.0
 RUN pip install "cython<3"
+# Human preference labeling (train_PEBBLE_*_human.py): video I/O + frame resize
+RUN pip install --no-cache-dir imageio imageio-ffmpeg opencv-python-headless
 
 # Install Metaworld
 RUN wget https://github.com/Farama-Foundation/Metaworld/archive/refs/tags/v2.0.0.tar.gz \

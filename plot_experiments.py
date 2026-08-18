@@ -651,8 +651,9 @@ def plot_channel_panels(
     out_path: str,
     ylabel: str,
     channel_prefix: str,
+    ci: str = "sem",
 ) -> None:
-    """One subplot per series label; lines are expert / alpha channels."""
+    """One subplot per series label; each channel is mean ± CI across seeds."""
     if not channel_curves:
         return
     labels = list(channel_curves.keys())
@@ -664,22 +665,35 @@ def plot_channel_panels(
     )
     axes_flat = axes.ravel()
     cmap = plt.get_cmap("tab10")
+    band_name = {"sem": "SEM", "std": "std", "none": "none"}.get(ci, ci)
 
     for ax, label in zip(axes_flat, labels):
         x, Y = channel_curves[label]  # (n_seeds, n_steps, n_ch)
-        mean = np.nanmean(Y, axis=0)
-        n_ch = mean.shape[1]
+        n_ch = Y.shape[2]
         for k in range(n_ch):
-            ok = np.isfinite(mean[:, k])
+            mean_k, band_k = aggregate(Y[:, :, k], ci=ci)
+            color = cmap(k % 10)
+            ok = np.isfinite(mean_k)
             ax.plot(
                 x[ok],
-                mean[ok, k],
-                color=cmap(k % 10),
+                mean_k[ok],
+                color=color,
                 label=f"{channel_prefix}_{k}",
                 linewidth=1.6,
             )
+            band_ok = ok & np.isfinite(band_k) & (band_k > 0)
+            if np.any(band_ok):
+                ax.fill_between(
+                    x,
+                    mean_k - band_k,
+                    mean_k + band_k,
+                    where=band_ok,
+                    color=color,
+                    alpha=0.22,
+                    linewidth=0,
+                )
         ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
-        ax.set_title(label)
+        ax.set_title(f"{label} (mean ± {band_name})")
         ax.set_xlabel("steps")
         ax.set_ylabel(ylabel)
         ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
@@ -1133,6 +1147,7 @@ def plot_env(
             out_path=os.path.join(out_dir, "alphas.png"),
             ylabel=r"$\alpha_k$",
             channel_prefix=r"$\alpha$",
+            ci=ci,
         )
     if alpha_tan_panels:
         plot_channel_panels(
@@ -1141,6 +1156,7 @@ def plot_env(
             out_path=os.path.join(out_dir, "alpha_tan.png"),
             ylabel=r"$\tilde\alpha_k$",
             channel_prefix=r"$\tilde\alpha$",
+            ci=ci,
         )
     if coef_panels:
         plot_channel_panels(
@@ -1149,6 +1165,7 @@ def plot_env(
             out_path=os.path.join(out_dir, "expert_coefficients.png"),
             ylabel="expert coef",
             channel_prefix="expert",
+            ci=ci,
         )
     if logit_coef_panels:
         plot_channel_panels(
@@ -1157,6 +1174,7 @@ def plot_env(
             out_path=os.path.join(out_dir, "expert_logit_coefs.png"),
             ylabel=r"$a_{bar}$",
             channel_prefix=r"$a_{bar}$",
+            ci=ci,
         )
     if abs_sum_curves:
         plot_scalar_overlay(

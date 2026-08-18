@@ -2,7 +2,7 @@
 """PEBBLE mixture with zero-last init, SGD reward optimizer, and two-path w_k loss.
 
 Reward-model SGD param groups:
-  - network (ensemble) lr = ``reward_lr`` (default 0.05)
+  - network (ensemble) lr = ``reward_lr`` (default 0.001)
   - trust α lr = ``alpha_lr`` (default 0.005)
 
 Loss matches ``fig6_alpha_curve_train_wk.py``: reward path is weighted by

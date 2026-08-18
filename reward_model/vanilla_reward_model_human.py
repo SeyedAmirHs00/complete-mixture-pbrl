@@ -32,10 +32,28 @@ class RewardModelHuman(RewardModel):
                  teacher_beta=-1, teacher_gamma=1, teacher_eps_mistake=0,
                  teacher_eps_skip=0, teacher_eps_equal=0, video_record_path='pebble_videos', seed=12345):
         
-        super(RewardModelHuman, self).__init__(obs_dim, action_dim, ensemble_size, lr, mb_size, size_segment, max_size,
-                                        activation, capacity, large_batch, label_margin, teacher_beta, teacher_gamma,
-                                        teacher_eps_mistake, teacher_eps_skip, teacher_eps_equal)                
-        
+        super(RewardModelHuman, self).__init__(
+            obs_dim,
+            action_dim,
+            ensemble_size=ensemble_size,
+            lr=lr,
+            mb_size=mb_size,
+            size_segment=size_segment,
+            max_size=max_size,
+            activation=activation,
+            capacity=capacity,
+            large_batch=large_batch,
+            label_margin=label_margin,
+            teacher_beta=teacher_beta,
+            teacher_gamma=teacher_gamma,
+            teacher_eps_mistake=teacher_eps_mistake,
+            teacher_eps_skip=teacher_eps_skip,
+            teacher_eps_equal=teacher_eps_equal,
+        )
+
+        # Parent stores dims as ds/da; human code uses obs_dim/action_dim.
+        self.obs_dim = self.ds
+        self.action_dim = self.da
         self.video_record_path = video_record_path
         self.frames = []
         self.session = 0

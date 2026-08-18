@@ -41,7 +41,7 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
         da,
         ensemble_size=3,
         mb_size=128,
-        lr=0.05,
+        lr=0.001,
         alpha_lr=0.005,
         size_segment=1,
         env_maker=None,

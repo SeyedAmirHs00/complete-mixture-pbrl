@@ -9,7 +9,7 @@ experiment: PEBBLE_mixture_zero_last_wk_sgd
 zero_last_layer: true
 
 # SGD on the mixture reward model (two param groups).
-reward_lr: 0.05
+reward_lr: 0.001
 alpha_lr: 0.005
 
 # Reward loss: two-path w_k (fig6): reward path weighted by detached w_k,
