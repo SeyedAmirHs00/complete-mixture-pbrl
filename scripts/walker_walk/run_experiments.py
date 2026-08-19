@@ -20,6 +20,9 @@ Examples
 
   python scripts/walker_walk/run_experiments.py --method zero_last_wk_sgd \\
       --max-feedback 5000 --seeds 12345 23451 --device cuda
+
+  # All β configs at one feedback budget (same 9 settings for mixture and wk_sgd)
+  python scripts/walker_walk/run_experiments.py --method zero_last_wk_sgd --max-feedback 5000 --all-betas
 """
 
 from __future__ import annotations
@@ -46,6 +49,21 @@ DEFAULT_SEEDS: Sequence[int] = (
 )
 
 DEFAULT_TEACHER_BETAS: Sequence[int] = (1, 1, 1, -1)
+
+# 5-expert mixtures from scripts/walker_walk/{500,1000,5000}/run_pebble_mixture_b*.sh
+MIXTURE_BETA_SETS: Sequence[Sequence[int]] = (
+    (1, 1, 1, -1, -1),
+    (1, 1, -1, -1, -1),
+    (1, 1, 1, -1, 0),
+    (1, 1, 1, 1, 0),
+    (1, 1, 1, 1, 1),
+    (1, 1, 1, 1, -1),
+    (1, 1, 1, 0, 0),
+    (1, 1, 0, 0, 0),
+    (1, 1, 0, 0, -1),
+)
+
+WK_SGD_BETA_SETS = MIXTURE_BETA_SETS
 
 ENTRYPOINTS = {
     "mixture": "train_PEBBLE_mixture.py",
@@ -100,6 +118,12 @@ def format_betas(betas: Sequence[int]) -> str:
     return "[" + ",".join(str(b) for b in betas) + "]"
 
 
+def beta_sets_for_method(method: str, all_betas: bool, teacher_betas: Sequence[int]) -> List[Sequence[int]]:
+    if all_betas:
+        return list(MIXTURE_BETA_SETS)
+    return [tuple(teacher_betas)]
+
+
 def build_cmd(
     *,
     method: str,
@@ -148,12 +172,18 @@ def parse_args() -> argparse.Namespace:
         help="Total preference-query budget (100, 500, 1000, or 5000)",
     )
     parser.add_argument(
+        "--all-betas",
+        action="store_true",
+        help="Run every teacher_betas config at this --max-feedback "
+        f"({len(MIXTURE_BETA_SETS)} settings; same for mixture and zero_last_wk_sgd)",
+    )
+    parser.add_argument(
         "--teacher-betas",
         nargs="+",
         type=int,
         default=list(DEFAULT_TEACHER_BETAS),
         metavar="B",
-        help=f"Expert rationalities (default: {list(DEFAULT_TEACHER_BETAS)})",
+        help=f"Single β vector when not using --all-betas (default: {list(DEFAULT_TEACHER_BETAS)})",
     )
     parser.add_argument(
         "--seeds",
@@ -187,47 +217,56 @@ def main() -> int:
     args = parse_args()
     preset = FEEDBACK_PRESETS[args.max_feedback]
     rb = preset.reward_batch if args.reward_batch is None else args.reward_batch
+    beta_sets = beta_sets_for_method(args.method, args.all_betas, args.teacher_betas)
 
     print(f"Walker-Walk experiments — {args.method}")
     print(f"  entrypoint     : {ENTRYPOINTS[args.method]}")
     print(f"  max_feedback   : {preset.max_feedback}")
     print(f"  reward_batch   : {rb}")
     print(f"  feed_type      : {preset.feed_type}")
-    print(f"  teacher_betas  : {list(args.teacher_betas)}")
+    print(f"  beta configs   : {len(beta_sets)}")
+    for betas in beta_sets:
+        print(f"    - {format_betas(betas)}")
     print(f"  seeds          : {args.seeds}")
     print(f"  device         : {args.device}")
     print(f"  logs           : {LOG_ROOTS[args.method]}/walker_walk/...")
+    print(f"  total runs     : {len(beta_sets) * len(args.seeds)}")
 
-    failures: List[tuple[int, int]] = []
-    for seed in args.seeds:
-        cmd = build_cmd(
-            method=args.method,
-            seed=seed,
-            device=args.device,
-            preset=preset,
-            teacher_betas=args.teacher_betas,
-            reward_batch=args.reward_batch,
-            num_train_steps=args.num_train_steps,
-        )
-        print("\n" + "=" * 88)
-        print(f"[walker_walk] seed={seed}  {' '.join(cmd)}")
-        print("=" * 88)
-        if args.dry_run:
-            continue
-        result = subprocess.run(
-            cmd, preexec_fn=os.setpgrp if hasattr(os, "setpgrp") else None
-        )
-        if result.returncode != 0:
-            failures.append((seed, result.returncode))
-            print(f"[FAILED] walker_walk seed={seed} (exit {result.returncode})")
+    failures: List[tuple[str, int, int]] = []
+    for betas in beta_sets:
+        beta_label = format_betas(betas)
+        for seed in args.seeds:
+            cmd = build_cmd(
+                method=args.method,
+                seed=seed,
+                device=args.device,
+                preset=preset,
+                teacher_betas=betas,
+                reward_batch=args.reward_batch,
+                num_train_steps=args.num_train_steps,
+            )
+            print("\n" + "=" * 88)
+            print(f"[walker_walk] β={beta_label}  seed={seed}")
+            print("=" * 88)
+            print(" ".join(cmd))
+            if args.dry_run:
+                continue
+            result = subprocess.run(
+                cmd, preexec_fn=os.setpgrp if hasattr(os, "setpgrp") else None
+            )
+            if result.returncode != 0:
+                failures.append((beta_label, seed, result.returncode))
+                print(
+                    f"[FAILED] β={beta_label} seed={seed} (exit {result.returncode})"
+                )
 
     if failures:
         print("\nFailed runs:")
-        for seed, code in failures:
-            print(f"  seed={seed}  exit={code}")
+        for beta_label, seed, code in failures:
+            print(f"  β={beta_label}  seed={seed}  exit={code}")
         return 1
 
-    n = len(args.seeds)
+    n = len(beta_sets) * len(args.seeds)
     print(f"\nAll {n} walker_walk {args.method} run(s) completed successfully.")
     return 0
 
