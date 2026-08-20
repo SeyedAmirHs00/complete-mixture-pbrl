@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""Run zero-last TTP with SGD + two-path w_k on Sweep-Into (10 seeds).
+"""Rerun Sweep-Into zero-last wk_sgd seeds that were launched with wrong reward_lr.
+
+Fixes seeds 89067 and 90678 for teacher_betas=[1,1,1,0], which previously ran
+with reward_lr=0.001. This runner uses the correct settings:
+  - reward_lr=0.05
+  - alpha_lr=0.005
 
 Entrypoint: ``train_PEBBLE_mixture_zero_last_wk_sgd.py``
-  - Stabilized init (zero last Linear of reward MLP)
-  - SGD reward optimizer: network lr=0.05, alpha lr=0.005
-  - Two-path w_k loss (fig6): detached w_k on reward CE; trust path on α
-
-Hyperparameters match ``scripts/sweep_into/run_pebble_mixture_b[1,1,1,-1].sh``
-and ``scripts/run_zero_last_no_wk.py`` (sweep_into block).
 
 Examples
 --------
-  python scripts/sweep_into/run_zero_last_wk_sgd.py --dry-run
-  python scripts/sweep_into/run_zero_last_wk_sgd.py --device cuda
-  python scripts/sweep_into/run_zero_last_wk_sgd.py --seeds 12345 23451
+  python scripts/sweep_into/run_zero_last_wk_sgd_1,1,1,0.py --dry-run
+  python scripts/sweep_into/run_zero_last_wk_sgd_1,1,1,0.py --device cuda
 """
 
 from __future__ import annotations
@@ -48,7 +46,7 @@ SWEEP_INTO_EXTRA: Sequence[str] = (
     "reward_batch=50",
     "feed_type=6",
     "teacher_betas=[1,1,1,0]",
-    "reward_lr=0.001",
+    "reward_lr=0.05",
     "alpha_lr=0.005",
 )
 
@@ -83,10 +81,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    print("Zero-last / w_k + SGD TTP — metaworld_sweep-into-v2")
-    print(f"  device : {args.device}")
-    print(f"  seeds  : {args.seeds}")
-    print("  logs   : exp_pebble_mixture_zero_last_wk_sgd/metaworld_sweep-into-v2/...")
+    print("Zero-last / w_k + SGD TTP — metaworld_sweep-into-v2 (rerun wrong reward_lr)")
+    print(f"  device    : {args.device}")
+    print(f"  seeds     : {args.seeds}")
+    print("  betas     : [1,1,1,0]")
+    print("  reward_lr : 0.05")
+    print("  alpha_lr  : 0.005")
+    print("  logs      : exp_pebble_mixture_zero_last_wk_sgd/metaworld_sweep-into-v2/...")
 
     failures: List[tuple[int, int]] = []
     for seed in args.seeds:

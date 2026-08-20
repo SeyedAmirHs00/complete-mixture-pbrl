@@ -53,9 +53,11 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
         logger: Union[Logger, None] = None,
         entropy_coef=0.05,
         init_trust=0.01,
+        coef_max_delta=0.1,
     ):
         # construct_ensemble() runs inside super().__init__.
         self.alpha_lr = alpha_lr
+        self.coef_max_delta = coef_max_delta
         super().__init__(
             reward_models,
             ds,
@@ -104,6 +106,23 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
         print(
             f"reward optimizer: SGD  network_lr={self.lr}  alpha_lr={self.alpha_lr}"
         )
+
+    def _compute_coef(self) -> torch.Tensor:
+        """Per-expert max-normalized trust coefficients."""
+        trust = torch.tanh(self.alphas)
+        return trust / trust.abs().amax().clamp_min(1e-12)
+
+    def _clamp_coef_after_step(self, coef_before: torch.Tensor) -> None:
+        """Limit per-expert coef change to ``coef_max_delta`` after one optimizer step."""
+        with torch.no_grad():
+            trust = torch.tanh(self.alphas)
+            scale = trust.abs().amax().clamp_min(1e-12)
+            coef_after = trust / scale
+            coef_target = coef_before + (coef_after - coef_before).clamp(
+                -self.coef_max_delta, self.coef_max_delta
+            )
+            trust_target = (coef_target * scale).clamp(-0.999999, 0.999999)
+            self.alphas.copy_(torch.atanh(trust_target))
 
     def _pref_loss(self, logits, labels, use_soft_loss):
         if use_soft_loss:
@@ -190,9 +209,11 @@ class MixtureRewardModel(_BaseMixtureRewardModel):
             if is_finished:
                 break
 
+            coef_before_step = self._compute_coef().detach().clone()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(net_params, 10.0)
             self.opt.step()
+            self._clamp_coef_after_step(coef_before_step)
 
             self.total_epochs += 1
             with torch.no_grad():
