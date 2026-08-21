@@ -26,6 +26,9 @@ from typing import List, Sequence
 
 
 DEFAULT_SEEDS: Sequence[int] = (
+    12345,
+    23451,
+    34512,
     45123,
     51234,
     67890,
