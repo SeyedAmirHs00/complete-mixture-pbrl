@@ -52,7 +52,7 @@ DOOR_OPEN_EXTRA: Sequence[str] = (
     "reward_batch=50",
     "feed_type=6",
     "teacher_betas=[1,1,1,0]",
-    "reward_lr=0.001",
+    "reward_lr=0.05",
     "alpha_lr=0.005",
 )
 
