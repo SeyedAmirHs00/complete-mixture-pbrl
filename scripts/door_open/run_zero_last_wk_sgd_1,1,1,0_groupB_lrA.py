@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Run zero-last TTP with SGD + two-path w_k on Cheetah-Run (10 seeds).
+"""Rerun Door-Open group-B seeds with group-A learning rates.
+
+Group B previously ran teacher_betas=[1,1,1,0] with:
+  - reward_lr=0.001
+  - alpha_lr=0.005
+
+This runner keeps the same six group-B seeds but uses group-A LRs:
+  - reward_lr=0.05
+  - alpha_lr=0.005
 
 Entrypoint: ``train_PEBBLE_mixture_zero_last_wk_sgd.py``
-  - Stabilized init (zero last Linear of reward MLP)
-  - SGD reward optimizer: network lr=0.001, alpha lr=0.005
-  - Two-path w_k loss (fig6): detached w_k on reward CE; trust path on α
-
-Hyperparameters match ``scripts/cheetah_run/run_pebble_mixture_b[1,1,1,0].sh``
-and ``scripts/run_zero_last_no_wk.py`` (cheetah_run block).
 
 Examples
 --------
-  python scripts/cheetah_run/run_zero_last_wk_sgd_1,1,1,0.py --dry-run
-  python scripts/cheetah_run/run_zero_last_wk_sgd_1,1,1,0.py --device cuda
-  python scripts/cheetah_run/run_zero_last_wk_sgd_1,1,1,0.py --seeds 12345 23451
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,0_groupB_lrA.py --dry-run
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,0_groupB_lrA.py --device cuda
+  python scripts/door_open/run_zero_last_wk_sgd_1,1,1,0_groupB_lrA.py --seeds 51234 6789
 """
 
 from __future__ import annotations
@@ -25,36 +27,33 @@ import sys
 from typing import List, Sequence
 
 
+# Group B seeds from b=[1,1,1,0] door-open runs that used reward_lr=0.001.
 DEFAULT_SEEDS: Sequence[int] = (
-    12345,
-    23451,
-    34512,
-    45123,
     51234,
+    6789,
     67890,
     78906,
     89067,
     90678,
-    6789,
 )
 
-CHEETAH_EXTRA: Sequence[str] = (
-    "env=cheetah_run",
-    "agent.params.actor_lr=0.0005",
-    "agent.params.critic_lr=0.0005",
-    "num_train_steps=1000000",
-    "agent.params.batch_size=1024",
-    "double_q_critic.params.hidden_dim=1024",
-    "double_q_critic.params.hidden_depth=2",
-    "diag_gaussian_actor.params.hidden_dim=1024",
-    "diag_gaussian_actor.params.hidden_depth=2",
+DOOR_OPEN_EXTRA: Sequence[str] = (
+    "env=metaworld_door-open-v2",
+    "agent.params.actor_lr=0.0003",
+    "agent.params.critic_lr=0.0003",
+    "activation=tanh",
     "num_unsup_steps=9000",
-    "reward_batch=100",
-    "num_interact=20000",
-    "max_feedback=4000",
+    "num_train_steps=1000000",
+    "agent.params.batch_size=512",
+    "double_q_critic.params.hidden_dim=256",
+    "double_q_critic.params.hidden_depth=3",
+    "diag_gaussian_actor.params.hidden_dim=256",
+    "diag_gaussian_actor.params.hidden_depth=3",
+    "reward_update=10",
+    "num_interact=5000",
+    "max_feedback=40000",
+    "reward_batch=50",
     "feed_type=6",
-    "reward_update=50",
-    "reset_update=100",
     "teacher_betas=[1,1,1,0]",
     "reward_lr=0.05",
     "alpha_lr=0.005",
@@ -67,7 +66,7 @@ def build_cmd(seed: int, device: str) -> List[str]:
         "train_PEBBLE_mixture_zero_last_wk_sgd.py",
         f"seed={seed}",
         f"device={device}",
-        *CHEETAH_EXTRA,
+        *DOOR_OPEN_EXTRA,
     ]
 
 
@@ -91,16 +90,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    print("Zero-last / w_k + SGD TTP — cheetah_run  β=[1,1,1,0]")
-    print(f"  device : {args.device}")
-    print(f"  seeds  : {args.seeds}")
-    print("  logs   : exp_pebble_mixture_zero_last_wk_sgd/cheetah_run/...")
+    print("Zero-last / w_k + SGD TTP — door-open group B with group A LRs")
+    print(f"  device    : {args.device}")
+    print(f"  seeds     : {args.seeds}")
+    print("  betas     : [1,1,1,0]")
+    print("  reward_lr : 0.05  (group A)")
+    print("  alpha_lr  : 0.005 (group A)")
+    print("  logs      : exp_pebble_mixture_zero_last_wk_sgd/metaworld_door-open-v2/...")
 
     failures: List[tuple[int, int]] = []
     for seed in args.seeds:
         cmd = build_cmd(seed, args.device)
         print("\n" + "=" * 88)
-        print(f"[cheetah_run] seed={seed}  {' '.join(cmd)}")
+        print(f"[door_open] seed={seed}  {' '.join(cmd)}")
         print("=" * 88)
         if args.dry_run:
             continue
@@ -109,7 +111,7 @@ def main() -> int:
         )
         if result.returncode != 0:
             failures.append((seed, result.returncode))
-            print(f"[FAILED] cheetah_run seed={seed} (exit {result.returncode})")
+            print(f"[FAILED] door_open seed={seed} (exit {result.returncode})")
 
     if failures:
         print("\nFailed runs:")
@@ -117,7 +119,7 @@ def main() -> int:
             print(f"  seed={seed}  exit={code}")
         return 1
 
-    print(f"\nAll {len(args.seeds)} cheetah_run wk_sgd runs completed successfully.")
+    print(f"\nAll {len(args.seeds)} door_open group-B (lr=A) runs completed successfully.")
     return 0
 
 
