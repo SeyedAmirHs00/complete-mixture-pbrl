@@ -56,7 +56,7 @@ CHEETAH_EXTRA: Sequence[str] = (
     "reward_update=50",
     "reset_update=100",
     "teacher_betas=[1,1,1,-1]",
-    "reward_lr=0.05",
+    "reward_lr=0.001",
     "alpha_lr=0.005",
 )
 
