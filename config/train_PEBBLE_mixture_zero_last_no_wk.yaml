@@ -13,4 +13,4 @@ zero_last_layer: true
 # hydra configuration
 hydra:
     run:
-        dir: ./exp_pebble_mixture_zero_last_no_wk/${env}/max_feedback${max_feedback}_feed_type${feed_type}_n${reward_batch}_l${segment}_g${teacher_gamma}_b${teacher_betas}_m${teacher_eps_mistake}_s${teacher_eps_skip}_e${teacher_eps_equal}/seed${seed}/
+        dir: ./exp_pebble_mixture_zero_last_no_wk/${env}/max_feedback${max_feedback}_feed_type${feed_type}_n${reward_batch}_l${segment}_g${teacher_gamma}_b${teacher_betas}_m${teacher_eps_mistake}_s${teacher_eps_skip}_e${teacher_eps_equal}/seed${seed}_${now:%Y-%m-%d_%H-%M-%S}/
