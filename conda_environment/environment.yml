@@ -5,6 +5,10 @@ channels:
   - conda-forge
   - defaults
 
+# Prefer conda-forge over defaults so Pillow/libtiff stay ABI-compatible
+# (defaults Pillow links against libtiff.so.5; conda-forge libtiff provides .so.6).
+channel_priority: strict
+
 dependencies:
   # Core Python
   - python=3.8
@@ -22,8 +26,10 @@ dependencies:
   - torchaudio=0.11.0
   - cudatoolkit=11.3
 
-  # Scientific / visualization stack
+  # Scientific / visualization stack (keep Pillow/libtiff on conda-forge)
   - pandas=1.5.3
+  - pillow
+  - libtiff
   - matplotlib
   - seaborn
   - scipy
