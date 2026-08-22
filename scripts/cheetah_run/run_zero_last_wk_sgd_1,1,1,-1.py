@@ -9,6 +9,9 @@ Entrypoint: ``train_PEBBLE_mixture_zero_last_wk_sgd.py``
 Hyperparameters match ``scripts/cheetah_run/run_pebble_mixture_b[1,1,1,-1].sh``
 and ``scripts/run_zero_last_no_wk.py`` (cheetah_run block).
 
+Ctrl+C shows the current experiment details and asks for confirmation before
+killing the training child and stopping the runner.
+
 Examples
 --------
   python scripts/cheetah_run/run_zero_last_wk_sgd_1,1,1,-1.py --dry-run
@@ -20,21 +23,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
-from typing import List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 
 DEFAULT_SEEDS: Sequence[int] = (
-    12345,
-    23451,
-    34512,
-    45123,
-    51234,
-    67890,
-    78906,
-    89067,
-    90678,
     6789,
 )
 
@@ -71,6 +66,120 @@ def build_cmd(seed: int, device: str) -> List[str]:
     ]
 
 
+def _overrides_dict(seed: int, device: str) -> Dict[str, str]:
+    values = {"seed": str(seed), "device": device}
+    for item in CHEETAH_EXTRA:
+        if "=" in item:
+            key, value = item.split("=", 1)
+            values[key] = value
+    return values
+
+
+def _format_experiment_details(seed: int, device: str, remaining: Sequence[int]) -> str:
+    values = _overrides_dict(seed, device)
+    keys = (
+        "env",
+        "seed",
+        "device",
+        "teacher_betas",
+        "reward_lr",
+        "alpha_lr",
+        "max_feedback",
+        "feed_type",
+        "reward_batch",
+        "num_train_steps",
+        "num_interact",
+        "reward_update",
+        "reset_update",
+    )
+    lines = ["Experiment details", "  entrypoint     : train_PEBBLE_mixture_zero_last_wk_sgd.py"]
+    for key in keys:
+        if key in values:
+            lines.append(f"  {key:14s}: {values[key]}")
+    lines.append(f"  remaining_seeds: {list(remaining)}")
+    return "\n".join(lines)
+
+
+class InterruptGuard:
+    """Confirm Ctrl+C at the runner level; child runs in its own process group."""
+
+    def __init__(self) -> None:
+        self.proc: Optional[subprocess.Popen] = None
+        self.seed: Optional[int] = None
+        self.device: str = "cuda"
+        self.remaining: Sequence[int] = ()
+        self.confirming = False
+        self.cancel_requested = False
+
+    def install(self) -> None:
+        signal.signal(signal.SIGINT, self._handler)
+
+    def set_current(
+        self,
+        proc: subprocess.Popen,
+        seed: int,
+        device: str,
+        remaining: Sequence[int],
+    ) -> None:
+        self.proc = proc
+        self.seed = seed
+        self.device = device
+        self.remaining = remaining
+
+    def clear_current(self) -> None:
+        self.proc = None
+        self.seed = None
+
+    def _kill_child(self) -> None:
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+
+    def _handler(self, signum, frame) -> None:
+        if self.confirming:
+            print("\nSecond Ctrl+C received — forcing exit.", flush=True)
+            self._kill_child()
+            os._exit(130)
+
+        self.confirming = True
+        try:
+            print("\n" + "=" * 72, flush=True)
+            print("Ctrl+C received — interrupt requested.", flush=True)
+            if self.seed is not None:
+                print(
+                    _format_experiment_details(self.seed, self.device, self.remaining),
+                    flush=True,
+                )
+            else:
+                print("  (no active training child)", flush=True)
+            print("=" * 72, flush=True)
+            try:
+                answer = input("Cancel this experiment (and stop the runner)? [y/N]: ")
+                answer = answer.strip().lower()
+            except EOFError:
+                answer = "y"
+            if answer in ("y", "yes"):
+                print("Cancelling experiment and stopping runner.", flush=True)
+                self.cancel_requested = True
+                self._kill_child()
+            else:
+                print("Continuing current experiment...", flush=True)
+        finally:
+            self.confirming = False
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", type=str, default="cuda")
@@ -96,20 +205,34 @@ def main() -> int:
     print(f"  seeds  : {args.seeds}")
     print("  logs   : exp_pebble_mixture_zero_last_wk_sgd/cheetah_run/...")
 
+    guard = InterruptGuard()
+    guard.install()
+
     failures: List[tuple[int, int]] = []
-    for seed in args.seeds:
+    for idx, seed in enumerate(args.seeds):
         cmd = build_cmd(seed, args.device)
         print("\n" + "=" * 88)
         print(f"[cheetah_run] seed={seed}  {' '.join(cmd)}")
         print("=" * 88)
         if args.dry_run:
             continue
-        result = subprocess.run(
-            cmd, preexec_fn=os.setpgrp if hasattr(os, "setpgrp") else None
+
+        remaining = args.seeds[idx:]
+        proc = subprocess.Popen(
+            cmd,
+            preexec_fn=os.setpgrp if hasattr(os, "setpgrp") else None,
         )
-        if result.returncode != 0:
-            failures.append((seed, result.returncode))
-            print(f"[FAILED] cheetah_run seed={seed} (exit {result.returncode})")
+        guard.set_current(proc, seed, args.device, remaining)
+        returncode = proc.wait()
+        guard.clear_current()
+
+        if guard.cancel_requested:
+            print(f"\nRunner cancelled during seed={seed}.")
+            return 130
+
+        if returncode != 0:
+            failures.append((seed, returncode))
+            print(f"[FAILED] cheetah_run seed={seed} (exit {returncode})")
 
     if failures:
         print("\nFailed runs:")
