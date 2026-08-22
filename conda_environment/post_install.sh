@@ -119,6 +119,8 @@ import mujoco_py
 import metaworld
 import cv2
 import imageio
+import matplotlib.pyplot as plt
+from PIL import Image
 
 print("torch:", torch.__version__)
 print("torch CUDA build:", torch.version.cuda)
@@ -127,5 +129,7 @@ print("mujoco:", mujoco.__version__)
 print("gym:", gym.__version__)
 print("mujoco_py:", mujoco_py.__version__)
 print("OpenCV:", cv2.__version__)
+print("matplotlib:", plt.matplotlib.__version__)
+print("pillow:", Image.__version__)
 print("All core imports succeeded.")
 PY
