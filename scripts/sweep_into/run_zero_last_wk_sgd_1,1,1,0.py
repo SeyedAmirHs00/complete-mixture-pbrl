@@ -28,8 +28,14 @@ from typing import Dict, List, Optional, Sequence
 
 
 DEFAULT_SEEDS: Sequence[int] = (
-    89067,
-    90678,
+    12345,
+    23451,
+    34512,
+    45123,
+    51234,
+    67890,
+    78906,
+    6789,
 )
 
 SWEEP_INTO_EXTRA: Sequence[str] = (
