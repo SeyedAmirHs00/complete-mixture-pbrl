@@ -41,11 +41,6 @@ DEFAULT_SEEDS: Sequence[int] = (
     34512,
     45123,
     51234,
-    67890,
-    78906,
-    89067,
-    90678,
-    6789,
 )
 
 DEFAULT_TEACHER_BETAS: Sequence[int] = (1, 1, 1, -1)
@@ -85,12 +80,41 @@ class FeedbackPreset:
 
 # Matches scripts/walker_walk/{500,1000,5000}/ and run_pebble.sh (100).
 FEEDBACK_PRESETS: dict[int, FeedbackPreset] = {
-    500: FeedbackPreset(max_feedback=500, reward_batch=5, feed_type=6),
-    1000: FeedbackPreset(max_feedback=1000, reward_batch=10, feed_type=6),
-    2500: FeedbackPreset(max_feedback=2500, reward_batch=25, feed_type=6),
-    5000: FeedbackPreset(max_feedback=5000, reward_batch=50, feed_type=6),
-    7500: FeedbackPreset(max_feedback=7500, reward_batch=75, feed_type=6),
-    10000: FeedbackPreset(max_feedback=5000, reward_batch=50, feed_type=6),
+    500: FeedbackPreset(
+        max_feedback=500,
+        reward_batch=10,
+        feed_type=6,
+    ),
+    1000: FeedbackPreset(
+        max_feedback=1000,
+        reward_batch=20,
+        feed_type=6,
+    ),
+    2000: FeedbackPreset(
+        max_feedback=2000,
+        reward_batch=40,
+        feed_type=6,
+    ),
+    3000: FeedbackPreset(
+        max_feedback=3000,
+        reward_batch=60,
+        feed_type=6,
+    ),
+    5000: FeedbackPreset(
+        max_feedback=5000,
+        reward_batch=100,
+        feed_type=6,
+    ),
+    7500: FeedbackPreset(
+        max_feedback=7500,
+        reward_batch=150,
+        feed_type=6,
+    ),
+    10000: FeedbackPreset(
+        max_feedback=10000,
+        reward_batch=200,
+        feed_type=6,
+    ),
 }
 
 WALKER_BASE: Sequence[str] = (
@@ -110,7 +134,7 @@ WALKER_BASE: Sequence[str] = (
 
 WK_SGD_EXTRA: Sequence[str] = (
     "reward_lr=0.001",
-    "alpha_lr=0.0005",
+    "alpha_lr=0.005",
 )
 
 
