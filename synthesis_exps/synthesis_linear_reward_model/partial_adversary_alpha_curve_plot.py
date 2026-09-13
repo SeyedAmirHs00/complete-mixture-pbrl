@@ -5,14 +5,14 @@ Aggregates over seeds: mean curve with a shaded variability band
 
 Examples
 --------
-  python fig6_alpha_curve_train.py --out_dir results/foo --overwrite
-  python fig6_alpha_curve_plot.py --run_dir results/foo
+  python partial_adversary_alpha_curve_data.py --out_dir results/foo --overwrite
+  python partial_adversary_alpha_curve_plot.py --run_dir results/foo
 
-  python fig6_alpha_curve_plot.py --run_dir results/foo --ci std
-  python fig6_alpha_curve_plot.py --run_dir results/foo --ci sem --no-per-seed
+  python partial_adversary_alpha_curve_plot.py --run_dir results/foo --ci std
+  python partial_adversary_alpha_curve_plot.py --run_dir results/foo --ci sem --no-per-seed
 
-  python fig6_alpha_curve_plot.py \\
-      --csv path/to/alpha_learning_curve_per_step.csv \\
+  python partial_adversary_alpha_curve_plot.py \
+      --csv path/to/alpha_learning_curve_per_step.csv \
       --out_dir path/to/figures
 """
 
@@ -175,14 +175,127 @@ def plot_per_seed(
         print(f"Saved {out_path}")
 
 
+def plot_per_experiment(
+    hist: pd.DataFrame,
+    out_dir: str,
+    *,
+    ci: str = "std",
+) -> None:
+    """Generate separate figures per (setting, method) experiment."""
+    os.makedirs(out_dir, exist_ok=True)
+    for (sname, mname), sub in hist.groupby(["setting", "method"], sort=False):
+        n_seeds = int(sub["seed_idx"].nunique())
+
+        # 1. Combined 2-panel figure: [tilde_alpha, abar_alpha]
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.6, 3.8), sharex=True)
+        for e in range(4):
+            esub = sub[sub.expert == e]
+            if esub.empty:
+                continue
+            color = EXPERT_COLORS[e]
+            label = EXPERT_LABELS[e]
+
+            # Left panel: tilde_alpha
+            steps1, mean1, band1 = aggregate_over_seeds(esub, "tilde_alpha", ci)
+            ax1.plot(steps1, mean1, color=color, lw=1.8, label=label)
+            if n_seeds > 1 and ci != "none" and np.any(band1 > 0):
+                ax1.fill_between(
+                    steps1,
+                    mean1 - band1,
+                    mean1 + band1,
+                    color=color,
+                    alpha=0.22,
+                    linewidth=0,
+                )
+
+            # Right panel: abar_alpha
+            steps2, mean2, band2 = aggregate_over_seeds(esub, "abar_alpha", ci)
+            ax2.plot(steps2, mean2, color=color, lw=1.8, label=label)
+            if n_seeds > 1 and ci != "none" and np.any(band2 > 0):
+                ax2.fill_between(
+                    steps2,
+                    mean2 - band2,
+                    mean2 + band2,
+                    color=color,
+                    alpha=0.22,
+                    linewidth=0,
+                )
+
+        ax1.axhline(0, color="gray", ls=":", lw=0.8)
+        ax1.grid(True, ls=":", alpha=0.35)
+        ax1.set_xlabel("step")
+        ax1.set_ylabel(r"$\tilde\alpha=\tanh(\alpha)$")
+        ax1.set_title(r"Bounded Trust $\tilde\alpha$", fontsize=10)
+        ax1.legend(fontsize=8, loc="best")
+
+        ax2.axhline(0, color="gray", ls=":", lw=0.8)
+        ax2.grid(True, ls=":", alpha=0.35)
+        ax2.set_xlabel("step")
+        ax2.set_ylabel(r"$\bar\alpha$")
+        ax2.set_title(r"Max-Normalized Trust $\bar\alpha$", fontsize=10)
+        ax2.legend(fontsize=8, loc="best")
+
+        fig.suptitle(
+            f"{sname} ({mname}) — α curves ({_ci_legend_suffix(ci)}, n={n_seeds})",
+            fontsize=11,
+        )
+        fig.tight_layout()
+        fname_combo = f"alpha_curve_{sname}_{mname}.png".replace("/", "_")
+        out_path_combo = os.path.join(out_dir, fname_combo)
+        fig.savefig(out_path_combo, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved {out_path_combo}")
+
+        # 2. Individual single-panel figures for focused views
+        for col, ylabel, tag in [
+            ("tilde_alpha", r"$\tilde\alpha=\tanh(\alpha)$", "tilde"),
+            ("abar_alpha", r"$\bar\alpha$", "abar"),
+        ]:
+            fig_s, ax_s = plt.subplots(figsize=(5.6, 3.6))
+            for e in range(4):
+                esub = sub[sub.expert == e]
+                if esub.empty:
+                    continue
+                color = EXPERT_COLORS[e]
+                label = EXPERT_LABELS[e]
+                steps, mean, band = aggregate_over_seeds(esub, col, ci)
+                ax_s.plot(steps, mean, color=color, lw=1.8, label=label)
+                if n_seeds > 1 and ci != "none" and np.any(band > 0):
+                    ax_s.fill_between(
+                        steps,
+                        mean - band,
+                        mean + band,
+                        color=color,
+                        alpha=0.22,
+                        linewidth=0,
+                    )
+
+            ax_s.axhline(0, color="gray", ls=":", lw=0.8)
+            ax_s.grid(True, ls=":", alpha=0.35)
+            ax_s.set_xlabel("step")
+            ax_s.set_ylabel(ylabel)
+            ax_s.set_title(
+                f"{sname} ({mname}) — {ylabel} ({_ci_legend_suffix(ci)}, n={n_seeds})",
+                fontsize=10,
+            )
+            ax_s.legend(fontsize=8, loc="best")
+            fig_s.tight_layout()
+            fname_s = f"alpha_curve_{tag}_{sname}_{mname}.png".replace("/", "_")
+            out_path_s = os.path.join(out_dir, fname_s)
+            fig_s.savefig(out_path_s, dpi=200, bbox_inches="tight")
+            plt.close(fig_s)
+            print(f"Saved {out_path_s}")
+
+
 def write_alpha_curve_figures(
     hist: pd.DataFrame,
     out_dir: str,
     *,
     ci: str = "std",
+    per_experiment: bool = True,
     per_seed: bool = False,
 ) -> None:
-    """Write aggregated mean±band grids (+ optional per-seed) into ``out_dir``."""
+    """Write aggregated mean±band grids (+ optional per-experiment, per-seed) into ``out_dir``."""
     os.makedirs(out_dir, exist_ok=True)
     plot_curves(
         hist,
@@ -198,6 +311,8 @@ def write_alpha_curve_figures(
         r"$\bar\alpha$",
         ci=ci,
     )
+    if per_experiment:
+        plot_per_experiment(hist, out_dir, ci=ci)
     if per_seed:
         plot_per_seed(hist, out_dir, "tilde_alpha", "tilde")
         plot_per_seed(hist, out_dir, "abar_alpha", "abar")
@@ -231,6 +346,18 @@ def parse_args() -> argparse.Namespace:
         choices=["std", "sem", "var", "none"],
         default="std",
         help="Seed-aggregation band: mean±std (default), ±SEM, ±variance, or mean only.",
+    )
+    p.add_argument(
+        "--per-experiment",
+        action="store_true",
+        default=True,
+        help="Write separate figures per (setting, method) experiment (default: True).",
+    )
+    p.add_argument(
+        "--no-per-experiment",
+        dest="per_experiment",
+        action="store_false",
+        help="Do not write figures per experiment.",
     )
     p.add_argument(
         "--per-seed",
@@ -281,12 +408,13 @@ def main() -> int:
     n_seeds = int(hist["seed_idx"].nunique())
     print(
         f"Plotting from {csv_path} → {out_dir}  "
-        f"(n_seeds={n_seeds}, ci={args.ci}, per_seed={args.per_seed})"
+        f"(n_seeds={n_seeds}, ci={args.ci}, per_experiment={args.per_experiment}, per_seed={args.per_seed})"
     )
     write_alpha_curve_figures(
         hist,
         out_dir,
         ci=args.ci,
+        per_experiment=args.per_experiment,
         per_seed=args.per_seed and not args.no_per_seed,
     )
     print(f"OUT: {out_dir}")
