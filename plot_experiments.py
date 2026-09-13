@@ -10,7 +10,15 @@ Expected on-disk layout (Hydra run folders)::
             test/eval.csv
             reward/reward.csv   # optional (alphas, expert coefs)
 
-Works for ``exp_pebble_mixture_zero_last`` and any similarly structured tree.
+Also supports SAC / GT-reward trees (no preference config folder)::
+
+    <root>/
+      <env>/
+        tests/
+          seedS/
+            test/eval.csv
+
+Works for ``exp_pebble_mixture_zero_last``, ``exp_sac``, and any similarly structured tree.
 Incomplete seeds are NaN-padded so curves span the longest run (max step).
 Figures go to ``results/<root>/<env>/b[1, 1, 1, -1]/`` (one folder per teacher β).
 
@@ -90,6 +98,8 @@ class RunConfig:
     max_feedback: int
     teacher_betas: Tuple[float, ...]
     label: str
+    # True for SAC / GT trees with no ``_b[...]_`` folder — included under any β filter.
+    beta_agnostic: bool = False
 
 
 @dataclass(frozen=True)
@@ -202,6 +212,25 @@ def discover_envs(root: str) -> List[str]:
     )
 
 
+def has_seed_eval_runs(path: str) -> bool:
+    """True if ``path`` contains ``seed*/test/eval.csv`` (SAC-style bucket)."""
+    if not os.path.isdir(path):
+        return False
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return False
+    for name in names:
+        if not SEED_RE.match(name):
+            continue
+        seed_dir = os.path.join(path, name)
+        if not os.path.isdir(seed_dir):
+            continue
+        if os.path.isfile(os.path.join(seed_dir, "test", "eval.csv")):
+            return True
+    return False
+
+
 def list_run_configs(
     env_dir: str,
     env: str,
@@ -209,7 +238,13 @@ def list_run_configs(
     teacher_betas: Optional[Sequence[float]] = None,
     max_feedback: Optional[int] = None,
 ) -> List[RunConfig]:
-    """List Hydra config folders directly under an environment directory."""
+    """List Hydra config folders directly under an environment directory.
+
+    Preference-based runs live in ``max_feedbackN_..._b[...]_/``. SAC / GT-reward
+    runs live in a flat bucket such as ``tests/seedS/`` with no feedback or β in
+    the path; those are returned as ``beta_agnostic`` and match any β / feedback
+    filter so they can overlay on preference comparison plots.
+    """
     configs: List[RunConfig] = []
     if not os.path.isdir(env_dir):
         return configs
@@ -218,23 +253,43 @@ def list_run_configs(
         if not os.path.isdir(path):
             continue
         m = FEEDBACK_RE.match(name)
-        if not m:
+        if m:
+            fb = int(m.group("fb"))
+            if max_feedback is not None and fb != max_feedback:
+                continue
+            betas = parse_teacher_betas_from_name(name)
+            if betas is None:
+                continue
+            if teacher_betas is not None and betas != normalize_teacher_betas(
+                teacher_betas
+            ):
+                continue
+            configs.append(
+                RunConfig(
+                    path=path,
+                    env=env,
+                    max_feedback=fb,
+                    teacher_betas=betas,
+                    label=run_label(fb, betas),
+                )
+            )
             continue
-        fb = int(m.group("fb"))
-        if max_feedback is not None and fb != max_feedback:
+
+        # SAC / GT layout: <env>/tests/seedS/test/eval.csv (no max_feedback / β).
+        if not has_seed_eval_runs(path):
             continue
-        betas = parse_teacher_betas_from_name(name)
-        if betas is None:
-            continue
-        if teacher_betas is not None and betas != normalize_teacher_betas(teacher_betas):
-            continue
+        if teacher_betas is not None:
+            betas = normalize_teacher_betas(teacher_betas)
+        else:
+            betas = ()
         configs.append(
             RunConfig(
                 path=path,
                 env=env,
-                max_feedback=fb,
+                max_feedback=0,
                 teacher_betas=betas,
-                label=run_label(fb, betas),
+                label="SAC" if name == "tests" else name,
+                beta_agnostic=True,
             )
         )
     return configs
@@ -294,6 +349,20 @@ def load_seed_series(
     return x, Y
 
 
+def resolve_eval_metric_column(df: pd.DataFrame, metric: str) -> Optional[str]:
+    """Pick the CSV column for ``metric``.
+
+    SAC MetaWorld logs ground-truth return as ``episode_reward`` only (no
+    ``true_episode_reward``). Prefer the requested column; fall back so SAC can
+    overlay on true-return comparison plots.
+    """
+    if metric in df.columns:
+        return metric
+    if metric == "true_episode_reward" and "episode_reward" in df.columns:
+        return "episode_reward"
+    return None
+
+
 def load_seed_series_labeled(
     csv_files: Sequence[str], metric: str, x_col: str = "step"
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
@@ -307,10 +376,13 @@ def load_seed_series_labeled(
     labels: List[str] = []
     for path in csv_files:
         df = pd.read_csv(path)
-        if x_col not in df.columns or metric not in df.columns:
+        if x_col not in df.columns:
+            continue
+        col = resolve_eval_metric_column(df, metric)
+        if col is None:
             continue
         xs.append(df[x_col].to_numpy(dtype=float))
-        series.append(df[metric].to_numpy(dtype=float))
+        series.append(df[col].to_numpy(dtype=float))
         seed = parse_seed_from_path(path)
         labels.append(f"seed{seed}" if seed is not None else os.path.basename(path))
 
@@ -465,7 +537,7 @@ def plot_learning_curves(
     curves: Dict[str, Curve],
     *,
     metric: str,
-    title: str,
+    title: Optional[str] = None,
     out_path: str,
     colors: Optional[Dict[str, str]] = None,
     linestyles: Optional[Dict[str, str]] = None,
@@ -522,7 +594,8 @@ def plot_learning_curves(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(pretty_metric(metric))
-    ax.set_title(title)
+    if title:
+        ax.set_title(title)
     ax.legend(frameon=False, loc="best", fontsize=8)
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
     if x_max > 0:
@@ -805,6 +878,8 @@ def collect_teacher_betas(
     for spec in series_list:
         env_dir = os.path.join(abs_under_repo(spec.root), env)
         for cfg in list_run_configs(env_dir, env, max_feedback=max_feedback):
+            if cfg.beta_agnostic:
+                continue
             if cfg.teacher_betas not in seen:
                 seen.add(cfg.teacher_betas)
                 found.append(cfg.teacher_betas)
@@ -1101,14 +1176,6 @@ def plot_env(
         print(f"Nothing to plot for {env}.")
         return None
 
-    title = env
-    if teacher_betas is not None:
-        title += f" ({format_teacher_betas(teacher_betas)})"
-    if max_feedback is not None:
-        title += f", max_feedback={max_feedback}"
-    if per_seed:
-        title += " [seeds + mean]"
-
     for plot_metric in metrics:
         curves = curves_by_metric[plot_metric]
         finals = finals_by_metric[plot_metric]
@@ -1118,7 +1185,6 @@ def plot_env(
         plot_learning_curves(
             curves,
             metric=plot_metric,
-            title=f"Learning curve — {title}",
             out_path=os.path.join(out_dir, f"learning_curve_{plot_metric}.png"),
             colors=colors,
             linestyles=linestyles,
@@ -1128,7 +1194,7 @@ def plot_env(
         plot_final_bars(
             finals,
             metric=plot_metric,
-            title=f"Final performance (last {last_n} evals) — {title}",
+            title=f"Final performance (last {last_n} evals)",
             out_path=os.path.join(out_dir, f"final_bar_{plot_metric}.png"),
             last_n=last_n,
             colors=colors,
@@ -1143,7 +1209,7 @@ def plot_env(
     if alpha_panels:
         plot_channel_panels(
             alpha_panels,
-            title=rf"Trust parameters $\alpha_k$ — {title}",
+            title=r"Trust parameters $\alpha_k$",
             out_path=os.path.join(out_dir, "alphas.png"),
             ylabel=r"$\alpha_k$",
             channel_prefix=r"$\alpha$",
@@ -1152,7 +1218,7 @@ def plot_env(
     if alpha_tan_panels:
         plot_channel_panels(
             alpha_tan_panels,
-            title=rf"Trust parameters $\tilde\alpha_k$ (tanh) — {title}",
+            title=r"Trust parameters $\tilde\alpha_k$ (tanh)",
             out_path=os.path.join(out_dir, "alpha_tan.png"),
             ylabel=r"$\tilde\alpha_k$",
             channel_prefix=r"$\tilde\alpha$",
@@ -1161,7 +1227,7 @@ def plot_env(
     if coef_panels:
         plot_channel_panels(
             coef_panels,
-            title=f"Expert coefficients — {title}",
+            title="Expert coefficients",
             out_path=os.path.join(out_dir, "expert_coefficients.png"),
             ylabel="expert coef",
             channel_prefix="expert",
@@ -1170,7 +1236,7 @@ def plot_env(
     if logit_coef_panels:
         plot_channel_panels(
             logit_coef_panels,
-            title=rf"Expert logit coefficients $a_{{bar}}$ — {title}",
+            title=r"Expert logit coefficients $a_{bar}$",
             out_path=os.path.join(out_dir, "expert_logit_coefs.png"),
             ylabel=r"$a_{bar}$",
             channel_prefix=r"$a_{bar}$",
@@ -1179,7 +1245,7 @@ def plot_env(
     if abs_sum_curves:
         plot_scalar_overlay(
             abs_sum_curves,
-            title=rf"$|\alpha|_1$ — {title}",
+            title=r"$|\alpha|_1$",
             out_path=os.path.join(out_dir, "alpha_abs_sum.png"),
             ylabel=r"$|\alpha|_1$",
             colors=colors,
