@@ -87,6 +87,7 @@ SERIES_COLORS = [
     "#BAB0AC",
     "#EACA2B",
 ]
+EXPERT_LINESTYLES = ["-", "--", "-.", ":"]
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,26 @@ class SeriesSpec:
     root: str
     color: str
     linestyle: str = "-"
+
+
+# Alpha / trust plots are TTP-specific; skip reward.csv for other overlays.
+TTP_SERIES_NAMES = frozenset({"TTP", "ttp"})
+TTP_ROOT_BASENAMES = frozenset(
+    {
+        "exp_pebble_mixture_zero_last_wk_sgd",
+        "exp_pebble_mixture_zero_last",
+    }
+)
+
+
+def series_plots_alpha_trust(spec: SeriesSpec, *, multi_series: bool) -> bool:
+    """Whether to load reward.csv and write α / w_k / logit figures for this series."""
+    if not multi_series:
+        return True
+    if spec.name in TTP_SERIES_NAMES:
+        return True
+    base = os.path.basename(os.path.normpath(spec.root))
+    return base in TTP_ROOT_BASENAMES
 
 
 # ---------------------------------------------------------------------------
@@ -531,6 +552,8 @@ def save_fig(fig: plt.Figure, out_path: str) -> None:
 
 Curve = Tuple[np.ndarray, np.ndarray, np.ndarray]  # x, mean, band
 SeedOverlay = Tuple[np.ndarray, np.ndarray, List[str]]  # x, Y[n_seeds,n_steps], seed labels
+# x, Y[n_seeds,n_steps,n_ch], channel names, seed labels
+ChannelPanel = Tuple[np.ndarray, np.ndarray, List[str], List[str]]
 
 
 def plot_learning_curves(
@@ -717,16 +740,92 @@ def plot_cross_env_curves(
     save_fig(fig, out_path)
 
 
+REWARD_XLABEL = "Reward step"
+
+CHANNEL_SYMBOL = {
+    "expert_logits_coef": r"\bar{\alpha}",
+    "expert_coef": r"w",
+    "alpha_tan": r"\tilde{\alpha}",
+    "alpha": r"\alpha",
+}
+
+
+def _channel_names(
+    cols: Sequence[str], n_ch: int, channel_prefix: str
+) -> List[str]:
+    names = list(cols)
+    while len(names) < n_ch:
+        names.append(f"{channel_prefix}_{len(names)}")
+    return names[:n_ch]
+
+
+def _pretty_channel_label(name: str, k: Optional[int] = None) -> str:
+    """Pretty math label for a reward channel, e.g. ``expert_coef_2`` → ``$w_2$``."""
+    m = re.search(r"_(\d+)$", name)
+    if k is None and m:
+        k = int(m.group(1))
+    stem = name[: m.start()] if m else name
+    symbol = CHANNEL_SYMBOL.get(stem)
+    if symbol is None:
+        return name
+    if k is None:
+        return rf"${symbol}_k$"
+    return rf"${symbol}_{{{k}}}$"
+
+
+def _draw_runs_mean_band(
+    ax: plt.Axes,
+    x: np.ndarray,
+    Y: np.ndarray,
+    *,
+    seed_colors: Sequence[str],
+    ci: str,
+) -> None:
+    """Faint per-seed traces (distinct colors) + thick mean + CI/std band.
+
+    No legend entries (seeds, mean, or band).
+    ``Y`` has shape ``(n_seeds, n_steps)``.
+    """
+    for i in range(Y.shape[0]):
+        y = Y[i]
+        ok = np.isfinite(y)
+        if not np.any(ok):
+            continue
+        color = seed_colors[i % len(seed_colors)]
+        ax.plot(x[ok], y[ok], color=color, linewidth=1.2, alpha=0.4)
+
+    mean, band = aggregate(Y, ci=ci)
+    ok = np.isfinite(mean)
+    ax.plot(x[ok], mean[ok], color="black", linewidth=2.6, zorder=3)
+    band_ok = ok & np.isfinite(band) & (band > 0)
+    if np.any(band_ok):
+        ax.fill_between(
+            x,
+            mean - band,
+            mean + band,
+            where=band_ok,
+            color="gray",
+            alpha=0.2,
+            linewidth=0,
+            zorder=2,
+        )
+
+
 def plot_channel_panels(
-    channel_curves: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    channel_curves: Dict[str, ChannelPanel],
     *,
     title: str,
     out_path: str,
     ylabel: str,
     channel_prefix: str,
     ci: str = "sem",
+    show_seeds: bool = False,
 ) -> None:
-    """One subplot per series label; each channel is mean ± CI across seeds."""
+    """One subplot per series; each expert in its own color with a thick mean.
+
+    When ``show_seeds`` is true, faint per-seed traces are drawn in the same
+    expert color under the mean ± CI (``--root`` / per-seed mode).
+    """
     if not channel_curves:
         return
     labels = list(channel_curves.keys())
@@ -737,22 +836,36 @@ def plot_channel_panels(
         nrows, ncols, figsize=(4.8 * ncols, 3.6 * nrows), squeeze=False, sharex=True
     )
     axes_flat = axes.ravel()
-    cmap = plt.get_cmap("tab10")
-    band_name = {"sem": "SEM", "std": "std", "none": "none"}.get(ci, ci)
 
     for ax, label in zip(axes_flat, labels):
-        x, Y = channel_curves[label]  # (n_seeds, n_steps, n_ch)
+        x, Y, cols, _seed_labs = channel_curves[label]
         n_ch = Y.shape[2]
+        names = _channel_names(cols, n_ch, channel_prefix)
         for k in range(n_ch):
+            color = SERIES_COLORS[k % len(SERIES_COLORS)]
+            if show_seeds:
+                for i in range(Y.shape[0]):
+                    y_i = Y[i, :, k]
+                    ok_i = np.isfinite(y_i)
+                    if np.any(ok_i):
+                        ax.plot(
+                            x[ok_i],
+                            y_i[ok_i],
+                            color=color,
+                            linewidth=1.0,
+                            alpha=0.28,
+                            zorder=2,
+                        )
             mean_k, band_k = aggregate(Y[:, :, k], ci=ci)
-            color = cmap(k % 10)
             ok = np.isfinite(mean_k)
             ax.plot(
                 x[ok],
                 mean_k[ok],
                 color=color,
-                label=f"{channel_prefix}_{k}",
-                linewidth=1.6,
+                linestyle=EXPERT_LINESTYLES[k % len(EXPERT_LINESTYLES)],
+                label=_pretty_channel_label(names[k], k),
+                linewidth=2.6,
+                zorder=3,
             )
             band_ok = ok & np.isfinite(band_k) & (band_k > 0)
             if np.any(band_ok):
@@ -762,31 +875,76 @@ def plot_channel_panels(
                     mean_k + band_k,
                     where=band_ok,
                     color=color,
-                    alpha=0.22,
+                    alpha=0.18,
                     linewidth=0,
+                    zorder=1,
                 )
         ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
-        ax.set_title(f"{label} (mean ± {band_name})")
-        ax.set_xlabel("steps")
+        ax.set_xlabel(REWARD_XLABEL)
         ax.set_ylabel(ylabel)
         ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
         if x.size:
             ax.set_xlim(left=0.0, right=float(np.nanmax(x)))
+        ax.legend(frameon=False, fontsize=8, loc="best")
 
     for ax in axes_flat[len(labels) :]:
         ax.axis("off")
 
-    handles, leg_labels = axes_flat[0].get_legend_handles_labels()
-    if handles:
-        fig.legend(
-            handles,
-            leg_labels,
-            loc="upper center",
-            ncol=min(6, len(leg_labels)),
-            frameon=False,
-        )
-    fig.suptitle(title, y=1.02)
     save_fig(fig, out_path)
+
+
+def plot_channel_with_runs(
+    channel_curves: Dict[str, ChannelPanel],
+    *,
+    out_dir: str,
+    channel_prefix: str,
+    ci: str = "sem",
+) -> None:
+    """One figure per expert: seed runs in separate colors + thick mean ± band.
+
+    Same style as ``results/reward_alpha_0_with_runs.pdf``. Multiple series
+    become side-by-side subplots on that expert's figure.
+    """
+    if not channel_curves:
+        return
+    labels = list(channel_curves.keys())
+    n_ch = max(Y.shape[2] for _, Y, _, _ in channel_curves.values())
+    first_cols = next(iter(channel_curves.values()))[2]
+    names = _channel_names(first_cols, n_ch, channel_prefix)
+    n_series = len(labels)
+    seed_colors = SERIES_COLORS
+
+    for k, name in enumerate(names):
+        pretty = _pretty_channel_label(name, k)
+        fig, axes = plt.subplots(
+            1,
+            n_series,
+            figsize=(10.0 if n_series == 1 else 5.6 * n_series, 6.0),
+            squeeze=False,
+            sharey=True,
+        )
+        axes_flat = axes.ravel()
+        for ax, label in zip(axes_flat, labels):
+            x, Y, _cols, _seed_labs = channel_curves[label]
+            if k >= Y.shape[2]:
+                ax.set_visible(False)
+                continue
+            _draw_runs_mean_band(
+                ax,
+                x,
+                Y[:, :, k],
+                seed_colors=seed_colors,
+                ci=ci,
+            )
+            ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
+            ax.set_xlabel(REWARD_XLABEL)
+            ax.set_ylabel(pretty)
+            ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+            if x.size:
+                ax.set_xlim(left=0.0, right=float(np.nanmax(x)))
+
+        out_path = os.path.join(out_dir, f"{name}_with_runs.png")
+        save_fig(fig, out_path)
 
 
 def plot_scalar_overlay(
@@ -818,9 +976,8 @@ def plot_scalar_overlay(
                 alpha=0.18,
                 linewidth=0,
             )
-    ax.set_xlabel("Environment steps")
+    ax.set_xlabel(REWARD_XLABEL)
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
     ax.legend(frameon=False, loc="best")
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
     if x_max > 0:
@@ -979,10 +1136,10 @@ def plot_env(
     seed_colors_by_metric: Dict[str, Dict[str, List[str]]] = {m: {} for m in metrics}
     colors: Dict[str, str] = {}
     linestyles: Dict[str, str] = {}
-    alpha_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-    coef_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-    alpha_tan_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-    logit_coef_panels: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    alpha_panels: Dict[str, ChannelPanel] = {}
+    coef_panels: Dict[str, ChannelPanel] = {}
+    alpha_tan_panels: Dict[str, ChannelPanel] = {}
+    logit_coef_panels: Dict[str, ChannelPanel] = {}
     abs_sum_curves: Dict[str, Curve] = {}
     summary_rows_by_metric: Dict[str, List[dict]] = {m: [] for m in metrics}
 
@@ -1128,7 +1285,7 @@ def plot_env(
                         }
                     )
 
-            if skip_reward:
+            if skip_reward or not series_plots_alpha_trust(spec, multi_series=multi_series):
                 continue
 
             reward_files = find_csv_files(cfg.path, "reward", seeds=seeds)
@@ -1137,15 +1294,15 @@ def plot_env(
                 continue
 
             def _add_channel_panels(
-                panels: Dict[str, Tuple[np.ndarray, np.ndarray]],
+                panels: Dict[str, ChannelPanel],
                 loaded: Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]],
                 kind: str,
             ) -> None:
                 if loaded is None:
                     return
-                x_ch, Y_ch, cols_ch, _seed_labs = loaded
-                panels[label] = (x_ch, Y_ch)
-                print(f"  [{label:40s}] {kind} channels={cols_ch}")
+                x_ch, Y_ch, cols_ch, seed_labs = loaded
+                panels[label] = (x_ch, Y_ch, cols_ch, seed_labs)
+                print(f"  [{label:40s}] {kind} channels={cols_ch} seeds={seed_labs}")
 
             _add_channel_panels(
                 alpha_panels, load_reward_channels(reward_files, r"alpha_\d+"), "alphas"
@@ -1212,7 +1369,14 @@ def plot_env(
             title=r"Trust parameters $\alpha_k$",
             out_path=os.path.join(out_dir, "alphas.png"),
             ylabel=r"$\alpha_k$",
-            channel_prefix=r"$\alpha$",
+            channel_prefix="alpha",
+            ci=ci,
+            show_seeds=per_seed,
+        )
+        plot_channel_with_runs(
+            alpha_panels,
+            out_dir=out_dir,
+            channel_prefix="alpha",
             ci=ci,
         )
     if alpha_tan_panels:
@@ -1221,7 +1385,14 @@ def plot_env(
             title=r"Trust parameters $\tilde\alpha_k$ (tanh)",
             out_path=os.path.join(out_dir, "alpha_tan.png"),
             ylabel=r"$\tilde\alpha_k$",
-            channel_prefix=r"$\tilde\alpha$",
+            channel_prefix="alpha_tan",
+            ci=ci,
+            show_seeds=per_seed,
+        )
+        plot_channel_with_runs(
+            alpha_tan_panels,
+            out_dir=out_dir,
+            channel_prefix="alpha_tan",
             ci=ci,
         )
     if coef_panels:
@@ -1229,8 +1400,15 @@ def plot_env(
             coef_panels,
             title="Expert coefficients",
             out_path=os.path.join(out_dir, "expert_coefficients.png"),
-            ylabel="expert coef",
-            channel_prefix="expert",
+            ylabel=r"$w_k$",
+            channel_prefix="expert_coef",
+            ci=ci,
+            show_seeds=per_seed,
+        )
+        plot_channel_with_runs(
+            coef_panels,
+            out_dir=out_dir,
+            channel_prefix="expert_coef",
             ci=ci,
         )
     if logit_coef_panels:
@@ -1238,8 +1416,15 @@ def plot_env(
             logit_coef_panels,
             title=r"Expert logit coefficients $a_{bar}$",
             out_path=os.path.join(out_dir, "expert_logit_coefs.png"),
-            ylabel=r"$a_{bar}$",
-            channel_prefix=r"$a_{bar}$",
+            ylabel=r"$\bar{\alpha}_k$",
+            channel_prefix="expert_logits_coef",
+            ci=ci,
+            show_seeds=per_seed,
+        )
+        plot_channel_with_runs(
+            logit_coef_panels,
+            out_dir=out_dir,
+            channel_prefix="expert_logits_coef",
             ci=ci,
         )
     if abs_sum_curves:
@@ -1392,6 +1577,8 @@ def main() -> int:
     print(f"  series : {[(s.name, s.root) for s in series_list]}")
     print(f"  envs   : {env_names}")
     print(f"  out    : {out_root}")
+    if len(series_list) > 1 and not args.skip_reward:
+        print("  alpha    : TTP only (reward.csv skipped for other series)")
 
     env_curves_by_beta: Dict[Tuple[float, ...], Dict[str, Dict[str, Curve]]] = {}
     metric_by_env: Dict[str, str] = {}
