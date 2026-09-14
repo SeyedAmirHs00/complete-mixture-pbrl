@@ -112,6 +112,10 @@ __pycache__/
 
 snippets.*
 
+# Local paper packaging helpers (not tracked)
+gather_main_v2.py
+bundle_main_v2.py
+
 # Archive files
 *.zip
 *.tar
