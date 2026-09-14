@@ -1,29 +1,22 @@
-"""
-Fig. 5 (main_v2): overlap counterfactual (TTP / No-alpha / DS-Sym).
-Label: fig:synthetic-overlap-sweep
+"""Generate Overlap counterfactual CSV (no plotting).
 
 Example:
-  python fig5_overlap.py --seeds 120 --overwrite
+  python overlap_sweep_data.py --seeds 120 --overwrite
 """
-
 
 from __future__ import annotations
 
 import argparse
 import os
 import shutil
-from typing import Tuple
+from typing import Optional, Tuple
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 
-from synthetic_shared_core import get_device, rowwise_corr, sigmoid_np
+from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA, clamp_coef_after_step, rowwise_corr, sigmoid_np
 
 
 def _returns(states: torch.Tensor, theta: torch.Tensor) -> torch.Tensor:
@@ -41,14 +34,12 @@ def train_ttp(
     lr_alpha: float = 0.005,
     alpha_init: float = 0.01,
     fix_alpha: bool = False,
+    coef_max_delta: Optional[float] = DEFAULT_COEF_MAX_DELTA,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Stabilized shared-head TTP (or No-α if fix_alpha)."""
     seeds, n_total, T, d = states.shape
     k, m = y.shape[1], y.shape[2]
     theta = torch.nn.Parameter(torch.zeros(seeds, d, device=states.device))
     if fix_alpha:
-        alpha = torch.full((seeds, k), 1.0, device=states.device)  # fixed equal trust before tanh/maxnorm
-        # Use raw ones after max-norm: all coef=1. Keep as buffer.
         alpha_param = None
     else:
         alpha_param = torch.nn.Parameter(torch.full((seeds, k), alpha_init, device=states.device))
@@ -63,11 +54,12 @@ def train_ttp(
         if fix_alpha:
             coef = torch.ones(seeds, k, device=states.device)
             w = torch.ones(seeds, k, device=states.device)
-            trust = coef
+            coef_before = None
         else:
             trust = torch.tanh(alpha_param)
             denom = trust.abs().amax(1, keepdim=True).clamp_min(1e-12).detach()
             coef = trust / denom
+            coef_before = coef.detach().clone()
             w = (k * trust.abs() / trust.abs().sum(1, keepdim=True).clamp_min(1e-12)).detach()
 
         loss_R = 0.0
@@ -92,6 +84,8 @@ def train_ttp(
             theta.data.sub_(lr_theta * g)
             if alpha_param is not None:
                 alpha_param.data.sub_(lr_alpha * alpha_param.grad)
+        if alpha_param is not None and coef_before is not None:
+            clamp_coef_after_step(alpha_param, coef_before, coef_max_delta)
 
     with torch.no_grad():
         R = _returns(states, theta).cpu().numpy()
@@ -112,10 +106,8 @@ def train_ds_sym(
     steps: int,
     lr: float = 0.05,
 ) -> np.ndarray:
-    """Shared-head DS-Sym: slope s, per-expert flip probs q_k, shared theta."""
     seeds, _, _, d = states.shape
     k, m = y.shape[1], y.shape[2]
-    # Small random init — zero init makes R≡0 and std-normalization NaN
     theta = torch.nn.Parameter(0.01 * torch.randn(seeds, d, device=states.device))
     s = torch.nn.Parameter(torch.ones(seeds, device=states.device))
     q_raw = torch.nn.Parameter(torch.zeros(seeds, k, device=states.device))
@@ -124,7 +116,6 @@ def train_ds_sym(
     for _ in range(steps):
         opt.zero_grad()
         R = _returns(states, theta)
-        # center/scale per seed for DS identifiability convenience
         std = R.std(1, keepdim=True).clamp_min(1e-6)
         R = (R - R.mean(1, keepdim=True)) / std
         q = torch.sigmoid(q_raw)
@@ -150,19 +141,19 @@ def train_ds_sym(
         return R.cpu().numpy()
 
 
-def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--out_dir", default="final_results/synthetic_overlap_sweep")
-    p.add_argument("--seeds", type=int, default=120)
-    p.add_argument("--steps", type=int, default=400)
-    p.add_argument("--overwrite", action="store_true")
-    args = p.parse_args()
-
-    if os.path.exists(args.out_dir):
-        if not args.overwrite:
-            raise FileExistsError(args.out_dir)
-        shutil.rmtree(args.out_dir)
-    os.makedirs(args.out_dir)
+def run_overlap_data(
+    out_dir: str,
+    seeds: int,
+    steps: int,
+    overwrite: bool,
+    *,
+    coef_max_delta: float = DEFAULT_COEF_MAX_DELTA,
+) -> str:
+    if os.path.exists(out_dir):
+        if not overwrite:
+            raise FileExistsError(out_dir)
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
 
     k, n_total, T, d, m = 4, 500, 50, 16, 256
     bs = n_total // k
@@ -172,7 +163,6 @@ def main() -> None:
 
     for qi, q in enumerate(qs):
         rng = np.random.default_rng(7000 + qi)
-        seeds = args.seeds
         theta_star = rng.normal(size=(seeds, d))
         theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
         states_np = rng.normal(size=(seeds, n_total, T, d))
@@ -214,34 +204,30 @@ def main() -> None:
             )
             y_np[:, e] = (rng.random((seeds, m)) < sigmoid_np(betas[e] * dstar)).astype(float)
 
-        device = get_device()
-        states = torch.as_tensor(states_np, dtype=torch.float32, device=device)
-        i_all = torch.as_tensor(i_all_np, dtype=torch.long, device=device)
-        j_all = torch.as_tensor(j_all_np, dtype=torch.long, device=device)
-        y = torch.as_tensor(y_np, dtype=torch.float32, device=device)
+        states = torch.as_tensor(states_np, dtype=torch.float32)
+        i_all = torch.as_tensor(i_all_np, dtype=torch.long)
+        j_all = torch.as_tensor(j_all_np, dtype=torch.long)
+        y = torch.as_tensor(y_np, dtype=torch.float32)
 
         for method in methods:
             if method == "ttp":
-                R, abar = train_ttp(states, i_all, j_all, y, steps=args.steps, fix_alpha=False)
-                aA = abar[:, -1]
+                R, abar = train_ttp(
+                    states, i_all, j_all, y, steps=steps, fix_alpha=False, coef_max_delta=coef_max_delta
+                )
+                aA = float(abar[:, -1].mean())
             elif method == "no_alpha":
-                R, abar = train_ttp(states, i_all, j_all, y, steps=args.steps, fix_alpha=True)
-                aA = None
+                R, abar = train_ttp(
+                    states, i_all, j_all, y, steps=steps, fix_alpha=True, coef_max_delta=coef_max_delta
+                )
+                aA = float("nan")
             else:
-                R = train_ds_sym(states, i_all, j_all, y, steps=args.steps)
-                aA = None
+                R = train_ds_sym(states, i_all, j_all, y, steps=steps)
+                aA = float("nan")
 
             rho = rowwise_corr(R, r_star)
             glob = np.abs(rho)
             locals_ = [np.abs(rowwise_corr(R[:, blk], r_star[:, blk])) for blk in blocks]
             loc = np.mean(np.stack(locals_, 0), 0)
-            if aA is None:
-                aA_mean = aA_med = aA_q25 = aA_q75 = float("nan")
-            else:
-                aA_mean = float(np.mean(aA))
-                aA_med = float(np.median(aA))
-                aA_q25 = float(np.percentile(aA, 25))
-                aA_q75 = float(np.percentile(aA, 75))
             row = {
                 "q": q,
                 "method": method,
@@ -253,10 +239,7 @@ def main() -> None:
                 "signed_q75": float(np.percentile(rho, 75)),
                 "local_med": float(np.mean(loc)),
                 "correct": float((rho > 0.05).mean()),
-                "mean_abar_A": aA_mean,
-                "med_abar_A": aA_med,
-                "abar_A_q25": aA_q25,
-                "abar_A_q75": aA_q75,
+                "mean_abar_A": aA,
             }
             rows.append(row)
             print(
@@ -265,62 +248,33 @@ def main() -> None:
             )
 
     table = pd.DataFrame(rows)
-    table.to_csv(os.path.join(args.out_dir, "overlap_shared.csv"), index=False)
-    plot_overlap_figure(table, args.out_dir)
-    print(f"OUT: {args.out_dir}")
+    table.to_csv(os.path.join(out_dir, "overlap_shared.csv"), index=False)
+    print(f"OUT overlap data: {out_dir}")
+    return out_dir
 
 
-def plot_overlap_figure(table: pd.DataFrame, out_dir: str) -> None:
-    colors = {"ttp": "#4c72b0", "no_alpha": "#dd8452", "ds_sym": "#55a868"}
-    labels = {"ttp": "TTP", "no_alpha": r"No-$\alpha$", "ds_sym": "DS-Sym"}
-    methods = ("ttp", "no_alpha", "ds_sym")
-
-    qs = sorted(table.q.unique())
-    fig, ax = plt.subplots(figsize=(5.8, 4.0))
-    if len(qs) == 1:
-        # Single-q (q=0) bar comparison
-        x = np.arange(len(methods))
-        for mi, method in enumerate(methods):
-            sub = table[table.method == method].iloc[0]
-            ax.bar(
-                mi,
-                sub.signed_med,
-                color=colors[method],
-                yerr=[[sub.signed_med - sub.signed_q25], [sub.signed_q75 - sub.signed_med]],
-                capsize=4,
-                label=labels[method],
-            )
-        ax.set_xticks(x)
-        ax.set_xticklabels([labels[m] for m in methods])
-        ax.set_xlabel(rf"method ($q={qs[0]:g}$, $n=500$)")
-    else:
-        for method in methods:
-            sub = table[table.method == method].sort_values("q")
-            ax.fill_between(
-                sub.q, sub.signed_q25, sub.signed_q75, color=colors[method], alpha=0.15
-            )
-            ax.plot(sub.q, sub.signed_med, "o-", color=colors[method], label=labels[method])
-        ax.set_xlabel("shared-pair fraction $q$")
-        ax.legend(fontsize=8, loc="lower right")
-    ax.axhline(0.0, color="gray", ls=":", lw=0.9)
-    ax.set_ylabel(r"median signed $\mathrm{corr}(\hat R,R^*)$")
-    ax.set_ylim(-1.05, 1.05)
-    ax.grid(True, ls=":", alpha=0.4)
-
-    fig.tight_layout()
-    fig.savefig(
-        os.path.join(out_dir, "3R1A_overlap_global_vs_local.png"),
-        dpi=200,
-        bbox_inches="tight",
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--out_dir", default="results/synthetic_overlap_sweep")
+    p.add_argument("--seeds", type=int, default=120)
+    p.add_argument("--steps", type=int, default=400)
+    p.add_argument("--overwrite", action="store_true")
+    p.add_argument(
+        "--coef-max-delta",
+        type=float,
+        default=DEFAULT_COEF_MAX_DELTA,
+        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
     )
-    plt.close(fig)
+    args = p.parse_args()
+
+    run_overlap_data(
+        args.out_dir,
+        args.seeds,
+        args.steps,
+        args.overwrite,
+        coef_max_delta=args.coef_max_delta,
+    )
+
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--replot":
-        out = sys.argv[2] if len(sys.argv) > 2 else "final_results/synthetic_overlap_sweep"
-        plot_overlap_figure(pd.read_csv(os.path.join(out, "overlap_shared.csv")), out)
-        print(f"replot OK: {out}")
-    else:
-        main()
+    main()

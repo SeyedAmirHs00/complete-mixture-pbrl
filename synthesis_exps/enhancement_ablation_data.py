@@ -1,9 +1,9 @@
 """
-Enhancement ablation on shared head R = sum_t tanh(θ^T s_t).
+Enhancement ablation table data (no plotting).
 Label: tab:enhancement-ablation
 
 Example:
-  python tab_enhancement_ablation.py --seeds 200 --overwrite
+  python enhancement_ablation_data.py --seeds 200 --overwrite
 """
 
 from __future__ import annotations
@@ -16,9 +16,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
-from synthetic_shared_core import SharedVariant, run_shared_variant
+from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA, SharedVariant, run_shared_variant
 
-# Reward head always uses tanh(θ^T s). Columns ablate α-tanh / max-norm / w_k.
 ABLATION_VARIANTS: Tuple[SharedVariant, ...] = (
     SharedVariant(
         "raw",
@@ -78,7 +77,7 @@ ABLATION_VARIANTS: Tuple[SharedVariant, ...] = (
     ),
 )
 
-BETAS = (1.0, 1.0, 0.0, -1.0)  # 2R1N1A
+BETAS = (1.0, 1.0, 0.0, -1.0)
 CFG = "2R1N1A"
 
 
@@ -100,34 +99,35 @@ def summarize(variant: SharedVariant, rho: np.ndarray, abar: np.ndarray) -> dict
     }
 
 
-def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--out_dir", default="final_results/synthetic_wk_ablation")
-    p.add_argument("--seeds", type=int, default=200)
-    p.add_argument("--steps", type=int, default=400)
-    p.add_argument("--n", type=int, default=500)
-    p.add_argument("--pairs", type=int, default=256)
-    p.add_argument("--q", type=float, default=0.0)
-    p.add_argument("--overwrite", action="store_true")
-    args = p.parse_args()
-
-    if os.path.exists(args.out_dir):
-        if not args.overwrite:
-            raise FileExistsError(args.out_dir)
-        shutil.rmtree(args.out_dir)
-    os.makedirs(args.out_dir)
+def run_ablation_data(
+    out_dir: str,
+    *,
+    seeds: int,
+    steps: int,
+    n: int,
+    pairs: int,
+    q: float,
+    overwrite: bool,
+    coef_max_delta: float = DEFAULT_COEF_MAX_DELTA,
+) -> str:
+    if os.path.exists(out_dir):
+        if not overwrite:
+            raise FileExistsError(out_dir)
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
 
     rows: List[dict] = []
     for idx, v in enumerate(ABLATION_VARIANTS):
         rho, abar, _ = run_shared_variant(
             BETAS,
             v,
-            seeds=args.seeds,
-            steps=args.steps,
-            n_seg=args.n,
-            pairs=args.pairs,
-            q=args.q,
+            seeds=seeds,
+            steps=steps,
+            n_seg=n,
+            pairs=pairs,
+            q=q,
             seed=9100 + 17 * idx,
+            coef_max_delta=coef_max_delta,
         )
         row = summarize(v, rho, abar)
         rows.append(row)
@@ -138,9 +138,39 @@ def main() -> None:
         )
 
     table = pd.DataFrame(rows)
-    table.to_csv(os.path.join(args.out_dir, "shared_wk_ablation.csv"), index=False)
-    table.to_csv(os.path.join(args.out_dir, "shared_wk_ablation_2R1N1A.csv"), index=False)
-    print(f"OUT: {args.out_dir}")
+    table.to_csv(os.path.join(out_dir, "enhancement_ablation.csv"), index=False)
+    table.to_csv(os.path.join(out_dir, "enhancement_ablation_2R1N1A.csv"), index=False)
+    print(f"OUT ablation data: {out_dir}")
+    return out_dir
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--out_dir", default="results/synthetic_enhancement_ablation")
+    p.add_argument("--seeds", type=int, default=200)
+    p.add_argument("--steps", type=int, default=400)
+    p.add_argument("--n", type=int, default=500)
+    p.add_argument("--pairs", type=int, default=256)
+    p.add_argument("--q", type=float, default=0.0)
+    p.add_argument("--overwrite", action="store_true")
+    p.add_argument(
+        "--coef-max-delta",
+        type=float,
+        default=DEFAULT_COEF_MAX_DELTA,
+        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+    )
+    args = p.parse_args()
+
+    run_ablation_data(
+        args.out_dir,
+        seeds=args.seeds,
+        steps=args.steps,
+        n=args.n,
+        pairs=args.pairs,
+        q=args.q,
+        overwrite=args.overwrite,
+        coef_max_delta=args.coef_max_delta,
+    )
 
 
 if __name__ == "__main__":

@@ -33,14 +33,44 @@ def rowwise_corr(x: np.ndarray, y: np.ndarray, eps: float = 1e-12) -> np.ndarray
 # Back-compat aliases used by runners
 sigmoid = sigmoid_np
 
+DEFAULT_COEF_MAX_DELTA = 0.1
 
-def get_device(device: Optional[torch.device] = None) -> torch.device:
-    """Resolve training device; prefer CUDA when available."""
-    if device is not None:
-        return torch.device(device) if not isinstance(device, torch.device) else device
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+
+def clamp_coef_after_step(
+    alpha: torch.Tensor,
+    coef_before: torch.Tensor,
+    coef_max_delta: Optional[float],
+    *,
+    use_alpha_tanh: bool = True,
+    use_maxnorm: bool = True,
+) -> None:
+    """Limit per-expert coef change after one optimizer step.
+
+    Reconstructs the same coef map used in the TTP loss (optional ``tanh`` and
+    max-norm), clamps the step in coef-space, then writes the matching ``alpha``.
+    """
+    if coef_max_delta is None or coef_max_delta <= 0:
+        return
+    with torch.no_grad():
+        trust = torch.tanh(alpha) if use_alpha_tanh else alpha
+        if use_maxnorm:
+            if trust.dim() == 1:
+                scale = trust.abs().amax().clamp_min(1e-12)
+            else:
+                scale = trust.abs().amax(dim=-1, keepdim=True).clamp_min(1e-12)
+            coef_after = trust / scale
+        else:
+            scale = None
+            coef_after = trust
+        coef_target = coef_before + (coef_after - coef_before).clamp(
+            -float(coef_max_delta), float(coef_max_delta)
+        )
+        trust_target = coef_target * scale if use_maxnorm else coef_target
+        if use_alpha_tanh:
+            trust_target = trust_target.clamp(-0.999999, 0.999999)
+            alpha.copy_(torch.atanh(trust_target))
+        else:
+            alpha.copy_(trust_target)
 
 
 @dataclass(frozen=True)
@@ -58,8 +88,9 @@ class SharedVariant:
 
 
 SHARED_BRANCH_VARIANTS = (
-    SharedVariant("standard", "Standard", target_rms=1.4, consensus_coef=0.0),
-    SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0),
+    # Linear head so init rms|ΔR| can reach ~100 (tanh saturates near √(2T)≈10 at T=50).
+    SharedVariant("standard", "Standard", target_rms=100.0, consensus_coef=0.0, use_tanh=False),
+    SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0, use_tanh=False),
 )
 
 
@@ -71,6 +102,7 @@ def calibrate_theta_scale(
     T: int,
     d: int,
     rng: np.random.Generator,
+    use_tanh: bool = True,
 ) -> float:
     if target_rms <= 0:
         return 0.0
@@ -78,14 +110,23 @@ def calibrate_theta_scale(
     def measure(scale: float) -> float:
         th = rng.normal(scale=scale / np.sqrt(d), size=(seeds, d))
         states = rng.normal(size=(seeds, n_seg, T, d))
-        R = np.tanh(np.einsum("sntd,sd->snt", states, th)).sum(axis=2)
+        pre = np.einsum("sntd,sd->snt", states, th)
+        R = (np.tanh(pre) if use_tanh else pre).sum(axis=2)
         i = rng.integers(0, n_seg, size=(seeds, 512))
         j = rng.integers(0, n_seg, size=(seeds, 512))
         dR = np.take_along_axis(R, i, axis=1) - np.take_along_axis(R, j, axis=1)
         return float(np.sqrt(np.mean(dR**2)))
 
-    lo, hi = 1e-4, 20.0
-    for _ in range(24):
+    # With tanh, rms saturates near ~√(2T); without, scale grows roughly linearly.
+    lo, hi = 1e-4, 20.0 if use_tanh else max(20.0, 2.0 * target_rms)
+    # Expand hi until we bracket the target (or hit a cap).
+    for _ in range(16):
+        if measure(hi) >= target_rms:
+            break
+        hi *= 2.0
+        if hi > 1e6:
+            break
+    for _ in range(32):
         mid = 0.5 * (lo + hi)
         if measure(mid) < target_rms:
             lo = mid
@@ -171,6 +212,7 @@ def run_shared_variant(
     theta_scale: Optional[float] = None,
     cal_rng: Optional[np.random.Generator] = None,
     device: Optional[torch.device] = None,
+    coef_max_delta: Optional[float] = DEFAULT_COEF_MAX_DELTA,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Returns
@@ -179,7 +221,7 @@ def run_shared_variant(
     alpha_bar : (seeds, K)
     init_rms : float empirical init rms|Delta R|
     """
-    device = get_device(device)
+    device = device or torch.device("cpu")
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
@@ -187,7 +229,13 @@ def run_shared_variant(
     if theta_scale is None:
         crng = cal_rng if cal_rng is not None else np.random.default_rng(seed + 7)
         theta_scale = calibrate_theta_scale(
-            variant.target_rms, seeds=min(40, seeds), n_seg=n_seg, T=T, d=d, rng=crng
+            variant.target_rms,
+            seeds=min(40, seeds),
+            n_seg=n_seg,
+            T=T,
+            d=d,
+            rng=crng,
+            use_tanh=variant.use_tanh,
         )
 
     theta_star = rng.normal(size=(seeds, d))
@@ -251,6 +299,8 @@ def run_shared_variant(
         else:
             coef = trust
 
+        coef_before = coef.detach().clone()
+
         if variant.use_confidence_weights:
             w = k * abs_t / abs_t.sum(dim=1, keepdim=True).clamp_min(1e-12)
             if variant.detach_weights:
@@ -292,6 +342,13 @@ def run_shared_variant(
             g.mul_(torch.clamp(10.0 / gn, max=1.0))
             theta.data.sub_(lr_theta * g)
             alpha.data.sub_(lr_alpha * alpha.grad)
+        clamp_coef_after_step(
+            alpha,
+            coef_before,
+            coef_max_delta,
+            use_alpha_tanh=variant.use_alpha_tanh,
+            use_maxnorm=variant.use_maxnorm,
+        )
 
     with torch.no_grad():
         R = _segment_returns(states, theta, variant.use_tanh).cpu().numpy()
@@ -314,3 +371,8 @@ def build_k4_configs() -> Dict[str, Tuple[float, ...]]:
         "2R1A1N": (1.0, 1.0, -1.0, 0.0),
         "1R3A": (1.0, -1.0, -1.0, -1.0),
     }
+
+
+def get_device() -> torch.device:
+    """Prefer CUDA when available; otherwise CPU."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")

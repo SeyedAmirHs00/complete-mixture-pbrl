@@ -1,11 +1,7 @@
-"""
-Fig. 2 (main_v2): branch-symmetry trust bars + correct-branch table.
-Label: fig:synthetic-branch
-
-Produces: final_results/synthetic_shared_all/branch_symmetry/
+"""Generate branch-symmetry CSVs (no plotting).
 
 Example:
-  python fig2_branch_symmetry.py --seeds 200 --overwrite
+  python branch_symmetry_data.py --seeds 200 --overwrite
 """
 
 from __future__ import annotations
@@ -13,16 +9,12 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-from typing import Dict, Tuple
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from synthetic_shared_core import (
+    DEFAULT_COEF_MAX_DELTA,
     SHARED_BRANCH_VARIANTS,
     build_k4_configs,
     run_shared_variant,
@@ -37,17 +29,17 @@ def ensure_dir(path: str, overwrite: bool) -> None:
     os.makedirs(path)
 
 
-def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
-    out = os.path.join(out_root, "branch_symmetry")
-    ensure_dir(out, overwrite)
+def run_branch_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *, coef_max_delta: float = DEFAULT_COEF_MAX_DELTA) -> str:
+    ensure_dir(out_dir, overwrite)
     configs = build_k4_configs()
     order = ["3R1N", "3R1A", "1R3A"]
     rows = []
-    run_store: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]] = {c: {} for c in order}
+    bar_rows = []
     cal_rng = np.random.default_rng(9017)
     idx = 0
     for cfg in order:
         betas = configs[cfg]
+        k = len(betas)
         for v in SHARED_BRANCH_VARIANTS:
             idx += 1
             rho, abar, rms0 = run_shared_variant(
@@ -57,6 +49,7 @@ def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                 steps=steps,
                 seed=9017 + 31 * idx,
                 cal_rng=cal_rng,
+                coef_max_delta=coef_max_delta,
             )
             correct = rho > 0.05
             flipped = rho < -0.05
@@ -84,7 +77,18 @@ def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
                     "mean_abar_A": float(abar_m[:, -1].mean()) if "A" in cfg else np.nan,
                 }
             )
-            run_store[cfg][v.name] = (rho, abar)
+            mean = abar_m.mean(0)
+            std = abar_m.std(0)
+            for ei in range(k):
+                bar_rows.append(
+                    {
+                        "config": cfg,
+                        "variant": v.name,
+                        "expert_idx": ei,
+                        "mean_abar": float(mean[ei]),
+                        "std_abar": float(std[ei]),
+                    }
+                )
             print(
                 f"[branch] {cfg:6s} {v.name:10s} correct={rows[-1]['correct_branch_rate']:.3f} "
                 f"rho={rows[-1]['mean_rho']:+.3f} rms0={rms0:.3f} "
@@ -92,68 +96,33 @@ def run_branch(out_root: str, seeds: int, steps: int, overwrite: bool) -> None:
             )
 
     table = pd.DataFrame(rows)
-    table.to_csv(os.path.join(out, "paper_table_synthetic_symmetry_fix.csv"), index=False)
+    table.to_csv(os.path.join(out_dir, "paper_table_synthetic_symmetry_fix.csv"), index=False)
 
     wide = table.pivot(index="config", columns="variant", values="correct_branch_rate")
     wide = wide.reindex(columns=[v.name for v in SHARED_BRANCH_VARIANTS])
-    wide.to_csv(os.path.join(out, "branch_correct_wide.csv"))
+    wide.to_csv(os.path.join(out_dir, "branch_correct_wide.csv"))
 
-    colors = {"standard": "#4c72b0", "stabilized": "#dd8452"}
-    for cfg in order:
-        betas = configs[cfg]
-        k = len(betas)
-        fig, ax = plt.subplots(figsize=(5.2, 3.4))
-        x = np.arange(k)
-        n_v = len(SHARED_BRANCH_VARIANTS)
-        width = 0.35 if n_v == 2 else 0.25
-        for vi, v in enumerate(SHARED_BRANCH_VARIANTS):
-            rho, abar = run_store[cfg][v.name]
-            correct = rho > 0.05
-            flipped = rho < -0.05
-            mask = correct if float(correct.mean()) >= float(flipped.mean()) else flipped
-            abar_m = abar[mask] if mask.any() else abar
-            mean = abar_m.mean(0)
-            std = abar_m.std(0)
-            ax.bar(
-                x + (vi - (n_v - 1) / 2) * width,
-                mean,
-                width,
-                yerr=std,
-                label=v.label,
-                color=colors[v.name],
-                alpha=0.9,
-            )
-        labels = []
-        for b in betas:
-            if b > 0:
-                labels.append("R")
-            elif b < 0:
-                labels.append("A")
-            else:
-                labels.append("N")
-        ax.set_xticks(x)
-        ax.set_xticklabels([f"E{i} ({lab})" for i, lab in enumerate(labels)])
-        ax.axhline(0, color="gray", ls=":", lw=0.8)
-        ax.set_ylim(-1.15, 1.15)
-        ax.set_ylabel(r"$\bar\alpha_k$")
-        ax.legend(fontsize=8)
-        ax.grid(True, axis="y", ls=":", alpha=0.4)
-        fig.tight_layout()
-        fig.savefig(os.path.join(out, f"alpha_bar_{cfg}.png"), dpi=200, bbox_inches="tight")
-        plt.close(fig)
-    print(f"OUT branch: {out}")
+    pd.DataFrame(bar_rows).to_csv(os.path.join(out_dir, "alpha_bar_stats.csv"), index=False)
+    print(f"OUT branch data: {out_dir}")
+    return out_dir
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Fig. 2: branch-symmetry (fig:synthetic-branch)")
-    p.add_argument("--out_root", default="final_results/synthetic_shared_all")
+    p = argparse.ArgumentParser(description="Branch-symmetry data")
+    p.add_argument("--out_dir", default="results/synthetic_branch_symmetry")
     p.add_argument("--seeds", type=int, default=200)
     p.add_argument("--steps", type=int, default=400)
     p.add_argument("--overwrite", action="store_true")
+
+    p.add_argument(
+        "--coef-max-delta",
+        type=float,
+        default=DEFAULT_COEF_MAX_DELTA,
+        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+    )
     args = p.parse_args()
 
-    os.makedirs(args.out_root, exist_ok=True)
-    run_branch(args.out_root, args.seeds, args.steps, args.overwrite)
+    run_branch_data(args.out_dir, args.seeds, args.steps, args.overwrite, coef_max_delta=args.coef_max_delta)
 
 
 if __name__ == "__main__":

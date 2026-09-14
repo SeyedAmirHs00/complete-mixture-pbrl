@@ -1,4 +1,4 @@
-"""Plot Fig. 6 partial-adversary α learning curves from train CSVs.
+"""Plot partial-adversary α learning curves from train CSVs.
 
 Aggregates over seeds: mean curve with a shaded variability band
 (``std`` / ``sem`` / ``var``). Optionally also writes per-seed figures.

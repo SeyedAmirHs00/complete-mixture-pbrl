@@ -14,27 +14,19 @@ Confidence reweighting:
 
 Methods (init)
 --------------
-  stabilized    — near-zero reward init (linear: θ=0; MLP: zero last Linear)
-  standard      — non-trivial init (linear: rms|ΔR|≈1.4; MLP: PyTorch default)
-  subtract_init — standard weight init with explicit zero functional init::
-
-                    R(x) = f_θ(x) − stopgrad(f_θ₀(x))
-
-                  so R≡0 at initialization while internal weights stay arbitrary.
-  both          — run stabilized and standard
+  Alpha-curve CLI runs **stabilized only** (θ=0 linear / zero last Linear for MLP).
 
 Optimizers (``--optimizer``)
 ----------------------------
-  sgd      — SGD on reward + α  (default lrs 0.05 / 0.005)
+  sgd      — SGD on reward + α  (default lrs 0.05 / 0.005; matches partial_adversary)
   adam     — Adam on reward + α (default lrs 3e-4 / 1e-4)
   adamw    — AdamW on reward + α (default lrs 3e-4 / 1e-4, wd=1e-2 on reward)
   adam_sgd — Adam on reward, SGD on α (default lrs 3e-4 / 5e-4)
 
 Examples
 --------
-  python partial_adversary_alpha_curve_data.py --seeds 100 --overwrite --plot
-  python partial_adversary_alpha_curve_data.py --no-wk --seeds 100 --overwrite --plot
-  python partial_adversary_alpha_curve_data.py --optimizer adamw --methods subtract_init --overwrite --plot
+  python partial_adversary_alpha_curve_data.py --overwrite --plot
+  python partial_adversary_alpha_curve_data.py --no-wk --overwrite --plot
   python partial_adversary_alpha_curve_data.py --optimizer adam_sgd --reward-model mlp --overwrite
   python partial_adversary_alpha_curve_plot.py --run_dir results/synthetic_partial_adversary_alpha_curve_wk
 """
@@ -44,6 +36,10 @@ from __future__ import annotations
 import argparse
 import copy
 import os
+
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 import shutil
 import sys
 from dataclasses import dataclass
@@ -62,13 +58,20 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from partial_adversary_alpha_curve_plot import write_alpha_curve_figures
+from partial_adversary_data import (
+    METHOD_SEED_ORDER,
+    SETTINGS as PARTIAL_ADV_SETTINGS,
+    make_partial_adv_labels,
+    partial_adversary_job_seed,
+)
 from synthetic_shared_core import (
+    DEFAULT_COEF_MAX_DELTA,
     _segment_returns,
     calibrate_theta_scale,
+    clamp_coef_after_step,
     get_device,
     rowwise_corr,
     sample_expert_pairs,
-    sigmoid,
 )
 
 HIST_CSV_NAME = "alpha_learning_curve_per_step.csv"
@@ -77,23 +80,15 @@ SUMMARY_CSV_NAME = "partial_adversary_alpha_curve_summary.csv"
 METHOD_SPECS: Dict[str, Dict[str, float]] = {
     # Linear head: target_rms controls θ init scale (0 ⇒ θ=0).
     "stabilized": {"target_rms": 0.0, "consensus_coef": 0.0},
-    "standard": {"target_rms": 1.4, "consensus_coef": 0.0},
+    "standard": {"target_rms": 100.0, "consensus_coef": 0.0},
     # Non-trivial weights (same as standard) but reward is
     # R(x) = f_θ(x) − stopgrad(f_θ₀(x)) so R≡0 at initialization.
-    "subtract_init": {"target_rms": 1.4, "consensus_coef": 0.0},
+    "subtract_init": {"target_rms": 100.0, "consensus_coef": 0.0},
 }
-
-PARTIAL_ADV_SETTINGS: List[Tuple[str, Dict[str, Any]]] = [
-    ("perfect_flip", dict(beta_adv=-1.0, flip_prob=None)),
-    ("beta_-0.5", dict(beta_adv=-0.5, flip_prob=None)),
-    ("beta_-0.25", dict(beta_adv=-0.25, flip_prob=None)),
-    ("stoch_p0.5", dict(beta_adv=None, flip_prob=0.5)),
-    ("stoch_p0.25", dict(beta_adv=None, flip_prob=0.25)),
-]
 
 # Default (lr_model, lr_alpha) per optimizer when CLI does not override.
 OPTIMIZER_DEFAULT_LRS: Dict[str, Tuple[float, float]] = {
-    "sgd": (0.005, 0.005),
+    "sgd": (0.05, 0.005),
     "adam": (3e-4, 1e-4),
     "adamw": (3e-4, 1e-4),
     "adam_sgd": (3e-4, 5e-4),
@@ -102,41 +97,15 @@ DEFAULT_WEIGHT_DECAY_ADAMW = 1e-2
 
 
 def resolve_methods(raw: Sequence[str]) -> List[str]:
-    if "both" in raw:
-        return ["stabilized", "standard"]
+    """Allowed inits: stabilized / standard (and subtract_init for ablations)."""
+    allowed = {"stabilized", "standard", "subtract_init"}
     out: List[str] = []
     for m in raw:
+        if m not in allowed:
+            raise ValueError(f"unknown method={m!r}; expected one of {sorted(allowed)}")
         if m not in out:
             out.append(m)
-    return out
-
-
-def make_partial_adv_labels(
-    rng: np.random.Generator,
-    *,
-    r_star: np.ndarray,
-    i: np.ndarray,
-    j: np.ndarray,
-    beta_adv: float | None,
-    flip_prob: float | None,
-) -> np.ndarray:
-    """Build y with shape (seeds, K=4, pairs) for 3R1A partial/stochastic adv."""
-    seeds, k, pairs = i.shape
-    assert k == 4
-    y = np.zeros((seeds, k, pairs))
-    for e in range(3):
-        d_star = np.take_along_axis(r_star, i[:, e], 1) - np.take_along_axis(r_star, j[:, e], 1)
-        y[:, e] = (rng.random((seeds, pairs)) < sigmoid(d_star)).astype(float)
-    d_adv = np.take_along_axis(r_star, i[:, 3], 1) - np.take_along_axis(r_star, j[:, 3], 1)
-    if flip_prob is not None:
-        anti = (rng.random((seeds, pairs)) < sigmoid(-d_adv)).astype(float)
-        rel = (rng.random((seeds, pairs)) < sigmoid(d_adv)).astype(float)
-        use_anti = rng.random((seeds, pairs)) < flip_prob
-        y[:, 3] = np.where(use_anti, anti, rel)
-    else:
-        ba = float(beta_adv)
-        y[:, 3] = (rng.random((seeds, pairs)) < sigmoid(ba * d_adv)).astype(float)
-    return y
+    return out or ["stabilized"]
 
 
 # ---------------------------------------------------------------------------
@@ -306,29 +275,17 @@ def detached_wk(trust: torch.Tensor, k: int) -> torch.Tensor:
     return (k * abs_t / abs_t.sum(dim=1, keepdim=True).clamp_min(1e-12)).detach()
 
 
-DEFAULT_COEF_MAX_DELTA = 0.1
-
-
-def clamp_coef_after_step(
-    alpha: torch.nn.Parameter | torch.Tensor,
-    coef_before: torch.Tensor,
-    coef_max_delta: Optional[float],
-) -> None:
-    """Limit per-expert coef change to ``coef_max_delta`` after one optimizer step."""
-    if coef_max_delta is None or coef_max_delta <= 0:
+def clip_theta_grad_per_seed(theta: torch.Tensor, max_norm: float = 10.0) -> None:
+    """Per-seed (or single-vector) grad clip matching ``partial_adversary`` / shared core."""
+    if theta.grad is None:
         return
-    with torch.no_grad():
-        trust = torch.tanh(alpha)
-        if trust.dim() == 1:
-            scale = trust.abs().amax().clamp_min(1e-12)
-        else:
-            scale = trust.abs().amax(dim=-1, keepdim=True).clamp_min(1e-12)
-        coef_after = trust / scale
-        coef_target = coef_before + (coef_after - coef_before).clamp(
-            -coef_max_delta, coef_max_delta
-        )
-        trust_target = (coef_target * scale).clamp(-0.999999, 0.999999)
-        alpha.copy_(torch.atanh(trust_target))
+    g = theta.grad
+    if g.dim() == 1:
+        gn = g.norm().clamp_min(1e-12)
+        g.mul_(torch.clamp(max_norm / gn, max=1.0))
+    else:
+        gn = g.norm(dim=1, keepdim=True).clamp_min(1e-12)
+        g.mul_(torch.clamp(max_norm / gn, max=1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +322,9 @@ def run_linear_with_alpha_history(
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
 
-    theta_scale = calibrate_theta_scale(target_rms, seeds=40, n_seg=n_seg, T=T, d=d, rng=rng)
+    theta_scale = calibrate_theta_scale(
+        target_rms, seeds=40, n_seg=n_seg, T=T, d=d, rng=rng, use_tanh=False
+    )
     theta_star = rng.normal(size=(seeds, d))
     theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
     states = rng.normal(size=(seeds, n_seg, T, d))
@@ -403,9 +362,9 @@ def run_linear_with_alpha_history(
     )
 
     def predict_R(th: torch.Tensor) -> torch.Tensor:
-        R = _segment_returns(states_t, th, True)
+        R = _segment_returns(states_t, th, False)
         if subtract_init:
-            R = R - _segment_returns(states_t, theta_init, True).detach()
+            R = R - _segment_returns(states_t, theta_init, False).detach()
         return R
 
     if subtract_init:
@@ -468,7 +427,7 @@ def run_linear_with_alpha_history(
             dim=(1, 2)
         ).sum()
         (loss_R + loss_A).backward()
-        torch.nn.utils.clip_grad_norm_([theta], 10.0)
+        clip_theta_grad_per_seed(theta, 10.0)
         opt.step()
         if coef_max_delta is not None and coef_max_delta > 0:
             clamp_coef_after_step(alpha, coef_before, coef_max_delta)
@@ -625,6 +584,7 @@ def train_mlp_seed_with_history(
         loss_A = F.binary_cross_entropy_with_logits(logits_A, y, reduction="none").mean()
 
         (loss_R + loss_A).backward()
+        # Single-seed MLP: global max-norm=10 (same threshold as per-seed linear clip).
         torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
         opt.step()
         if coef_max_delta is not None and coef_max_delta > 0:
@@ -764,7 +724,6 @@ def run_alpha_curve_experiment(
 
     all_hist: list[pd.DataFrame] = []
     summary_rows: list[dict[str, float | str | bool | Optional[float]]] = []
-    idx = 0
     opt_kw = dict(
         lr_theta=lr_model,
         lr_alpha=lr_alpha,
@@ -773,11 +732,28 @@ def run_alpha_curve_experiment(
         use_wk=use_wk,
         coef_max_delta=coef_max_delta,
     )
-    for sname, skw in settings:
+    # Seed grid matches partial_adversary_data SETTINGS × METHODS (stabilized/standard).
+    printed_mlp_note: set[str] = set()
+    for si, (sname, skw) in enumerate(settings):
         for mname in methods:
-            idx += 1
+            if mname in METHOD_SEED_ORDER:
+                job_seed = partial_adversary_job_seed(si, mname)
+            else:
+                # Alpha-curve-only methods sit after the shared 2-method grid.
+                extra_methods = ("subtract_init",)
+                if mname not in extra_methods:
+                    raise ValueError(f"no seed mapping for method={mname!r}")
+                extra_i = extra_methods.index(mname)
+                job_seed = (
+                    9400
+                    + len(PARTIAL_ADV_SETTINGS) * len(METHOD_SEED_ORDER)
+                    + si * len(extra_methods)
+                    + extra_i
+                    + 1
+                )
             print(
-                f"[alpha-curve {tag_wk}] {sname:12s} {mname:10s} ({reward_model}/{optimizer}) ...",
+                f"[alpha-curve {tag_wk}] {sname:12s} {mname:10s} "
+                f"({reward_model}/{optimizer}, seed={job_seed}) ...",
                 flush=True,
             )
             mkw = METHOD_SPECS[mname]
@@ -785,7 +761,7 @@ def run_alpha_curve_experiment(
                 out = run_linear_with_alpha_history(
                     seeds=seeds,
                     steps=steps,
-                    seed=9400 + idx,
+                    seed=job_seed,
                     n_seg=500,
                     q=0.0,
                     log_every=log_every,
@@ -795,22 +771,24 @@ def run_alpha_curve_experiment(
                     **opt_kw,
                 )
             elif reward_model == "mlp":
-                if mname == "stabilized" and idx == 1:
+                if mname == "stabilized" and mname not in printed_mlp_note:
                     print(
                         "  [mlp/stabilized] learner last Linear weight+bias zeroed at init",
                         flush=True,
                     )
-                if mname == "subtract_init" and idx == 1:
+                    printed_mlp_note.add(mname)
+                if mname == "subtract_init" and mname not in printed_mlp_note:
                     print(
                         "  [mlp/subtract_init] R = f_θ(x) − stopgrad(f_θ₀(x))",
                         flush=True,
                     )
+                    printed_mlp_note.add(mname)
                 out = run_mlp_with_alpha_history(
                     seeds=seeds,
                     steps=steps,
                     method=mname,
                     consensus_coef=float(mkw["consensus_coef"]),
-                    seed=9400 + idx,
+                    seed=job_seed,
                     n_seg=500,
                     q=0.0,
                     log_every=log_every,
@@ -870,15 +848,15 @@ def parse_args() -> argparse.Namespace:
         help="Directory for CSV outputs "
         "(default: results/synthetic_partial_adversary_alpha_curve[_wk][_opt][_mlp]).",
     )
-    p.add_argument("--seeds", type=int, default=100, help="Number of MC seeds (batch size).")
-    p.add_argument("--steps", type=int, default=1000)
+    p.add_argument("--seeds", type=int, default=200, help="Number of MC seeds (batch size).")
+    p.add_argument("--steps", type=int, default=400)
     p.add_argument("--log_every", type=int, default=1, help="Record alpha every N steps.")
     p.add_argument(
         "--methods",
         nargs="+",
-        choices=["stabilized", "standard", "subtract_init", "both"],
-        default=["stabilized"],
-        help="Init variants: stabilized, standard, subtract_init, or both.",
+        choices=["stabilized", "standard", "subtract_init"],
+        default=["stabilized", "standard"],
+        help="Init variants (default: stabilized and standard).",
     )
     p.add_argument(
         "--reward-model",
