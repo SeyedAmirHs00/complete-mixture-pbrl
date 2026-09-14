@@ -36,6 +36,11 @@ sigmoid = sigmoid_np
 DEFAULT_COEF_MAX_DELTA = 0.0  # <=0 disables per-step trust coef clamp
 
 
+def get_device() -> torch.device:
+    """Prefer CUDA when available; otherwise CPU."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def clamp_coef_after_step(
     alpha: torch.Tensor,
     coef_before: torch.Tensor,
@@ -73,11 +78,16 @@ def clamp_coef_after_step(
             alpha.copy_(trust_target)
 
 
+# Paper default Standard init: calibrate θ so rms|ΔR|_0 ≈ 1.4.
+DEFAULT_STANDARD_TARGET_RMS = 1.4
+
+
 @dataclass(frozen=True)
 class SharedVariant:
     name: str
     label: str
-    target_rms: float  # 0 => theta=0 (Stabilized); >0 => random theta calibrated to rms
+    # None => DEFAULT_STANDARD_TARGET_RMS; 0 => θ=0 (Stabilized); >0 => calibrated rms|ΔR|.
+    target_rms: Optional[float] = None
     consensus_coef: float = 0.0
     use_tanh: bool = True  # reward head: R = sum tanh(θ^T s)
     use_alpha_tanh: bool = True  # trust path: α ↦ tanh(α)
@@ -88,10 +98,59 @@ class SharedVariant:
 
 
 SHARED_BRANCH_VARIANTS = (
-    # Linear head so init rms|ΔR| can reach ~50 (tanh saturates near √(2T)≈10 at T=50).
-    SharedVariant("standard", "Standard", target_rms=50.0, consensus_coef=0.0, use_tanh=False),
+    # Standard: rms|ΔR|_0 ≈ 1.4. Stabilized: θ=0.
+    SharedVariant(
+        "standard",
+        "Standard",
+        target_rms=DEFAULT_STANDARD_TARGET_RMS,
+        consensus_coef=0.0,
+        use_tanh=False,
+    ),
     SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0, use_tanh=False),
 )
+
+
+def init_theta0(
+    target_rms: Optional[float],
+    *,
+    seeds: int,
+    d: int,
+    rng: np.random.Generator,
+    n_seg: int = 500,
+    T: int = 50,
+    use_tanh: bool = True,
+    theta_scale: Optional[float] = None,
+    cal_rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """Initialize reward weights θ.
+
+    - ``theta_scale`` set: explicit Gaussian scale / √d (init-scale sweep).
+    - ``target_rms is None``: ``DEFAULT_STANDARD_TARGET_RMS`` (1.4).
+    - ``target_rms <= 0``: zeros (Stabilized).
+    - ``target_rms > 0``: Gaussian calibrated so rms|ΔR| ≈ target.
+    """
+    if theta_scale is not None:
+        if theta_scale == 0.0:
+            return np.zeros((seeds, d), dtype=np.float64)
+        return rng.normal(scale=theta_scale / np.sqrt(d), size=(seeds, d))
+
+    rms = DEFAULT_STANDARD_TARGET_RMS if target_rms is None else float(target_rms)
+    if rms <= 0:
+        return np.zeros((seeds, d), dtype=np.float64)
+
+    crng = cal_rng if cal_rng is not None else rng
+    scale = calibrate_theta_scale(
+        rms,
+        seeds=min(40, seeds),
+        n_seg=n_seg,
+        T=T,
+        d=d,
+        rng=crng,
+        use_tanh=use_tanh,
+    )
+    if scale == 0.0:
+        return np.zeros((seeds, d), dtype=np.float64)
+    return rng.normal(scale=scale / np.sqrt(d), size=(seeds, d))
 
 
 def calibrate_theta_scale(
@@ -221,22 +280,10 @@ def run_shared_variant(
     alpha_bar : (seeds, K)
     init_rms : float empirical init rms|Delta R|
     """
-    device = device or torch.device("cpu")
+    device = device or get_device()
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
-
-    if theta_scale is None:
-        crng = cal_rng if cal_rng is not None else np.random.default_rng(seed + 7)
-        theta_scale = calibrate_theta_scale(
-            variant.target_rms,
-            seeds=min(40, seeds),
-            n_seg=n_seg,
-            T=T,
-            d=d,
-            rng=crng,
-            use_tanh=variant.use_tanh,
-        )
 
     theta_star = rng.normal(size=(seeds, d))
     theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
@@ -257,10 +304,18 @@ def run_shared_variant(
         y_np[:, e] = (rng.random((seeds, pairs)) < sigmoid_np(b[e] * d_star)).astype(np.float64)
     consensus_np = y_np.mean(1)
 
-    if theta_scale == 0.0:
-        theta0 = np.zeros((seeds, d), dtype=np.float64)
-    else:
-        theta0 = rng.normal(scale=theta_scale / np.sqrt(d), size=(seeds, d))
+    crng = cal_rng if cal_rng is not None else np.random.default_rng(seed + 7)
+    theta0 = init_theta0(
+        variant.target_rms,
+        seeds=seeds,
+        d=d,
+        rng=rng,
+        n_seg=n_seg,
+        T=T,
+        use_tanh=variant.use_tanh,
+        theta_scale=theta_scale,
+        cal_rng=crng,
+    )
 
     states = torch.as_tensor(states_np, dtype=torch.float32, device=device)
     i = torch.as_tensor(i_np, dtype=torch.long, device=device)  # [S,K,P]
@@ -371,8 +426,3 @@ def build_k4_configs() -> Dict[str, Tuple[float, ...]]:
         "2R1A1N": (1.0, 1.0, -1.0, 0.0),
         "1R3A": (1.0, -1.0, -1.0, -1.0),
     }
-
-
-def get_device() -> torch.device:
-    """Prefer CUDA when available; otherwise CPU."""
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")

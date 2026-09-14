@@ -43,7 +43,7 @@ def main() -> None:
         nargs="+",
         choices=["stabilized", "standard", "subtract_init"],
         default=["stabilized", "standard"],
-        help="Init variants (default: stabilized and standard; Standard uses rms≈100).",
+        help="Init variants (default: stabilized and standard; Standard uses rms|ΔR|≈1.4).",
     )
     p.add_argument(
         "--reward-model",

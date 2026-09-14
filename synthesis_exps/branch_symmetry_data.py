@@ -15,14 +15,21 @@ import pandas as pd
 
 from synthetic_shared_core import (
     DEFAULT_COEF_MAX_DELTA,
+    DEFAULT_STANDARD_TARGET_RMS,
     SharedVariant,
     build_k4_configs,
     run_shared_variant,
 )
 
-# Paper default Standard init (rms|ΔR|_0 ≈ 1.4) + Stabilized (θ=0).
+# Standard: rms|ΔR|_0 ≈ 1.4; Stabilized: θ=0.
 BRANCH_VARIANTS = (
-    SharedVariant("standard", "Standard", target_rms=1.4, consensus_coef=0.0, use_tanh=True),
+    SharedVariant(
+        "standard",
+        "Standard",
+        target_rms=DEFAULT_STANDARD_TARGET_RMS,
+        consensus_coef=0.0,
+        use_tanh=True,
+    ),
     SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0, use_tanh=True),
 )
 
