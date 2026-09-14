@@ -64,8 +64,8 @@ def run_T_sweep_data(
                     cal_rng=cal_rng,
                     coef_max_delta=coef_max_delta,
                 )
-                correct = float((rho > 0.05).mean())
-                flipped = float((rho < -0.05).mean())
+                correct = float((rho > 0.5).mean())
+                flipped = float((rho < -0.5).mean())
                 rows.append(
                     {
                         "T": T,
@@ -112,7 +112,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

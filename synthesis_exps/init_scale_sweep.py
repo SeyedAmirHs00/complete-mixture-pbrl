@@ -18,6 +18,7 @@ import pandas as pd
 
 from init_scale_sweep_data import run_init_scale_data
 from init_scale_sweep_plot import plot_init_scale_figure
+from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA
 
 
 def main() -> None:
@@ -32,8 +33,8 @@ def main() -> None:
     p.add_argument(
         "--coef-max-delta",
         type=float,
-        default=0.1,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        default=DEFAULT_COEF_MAX_DELTA,
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

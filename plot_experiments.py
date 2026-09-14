@@ -742,12 +742,27 @@ def plot_cross_env_curves(
 
 REWARD_XLABEL = "Reward step"
 
+# Larger typography for alpha / logit-coef style figures (readable in paper grids).
+ALPHA_LABELSIZE = 16
+ALPHA_TICKSIZE = 14
+ALPHA_LEGENDSIZE = 12
+ALPHA_OFFSETSIZE = 13
+
 CHANNEL_SYMBOL = {
     "expert_logits_coef": r"\bar{\alpha}",
     "expert_coef": r"w",
     "alpha_tan": r"\tilde{\alpha}",
     "alpha": r"\alpha",
 }
+
+
+def _style_alpha_axes(ax: plt.Axes, *, xlabel: str, ylabel: str) -> None:
+    """Apply larger fonts used by alpha / logit_coef / related reward plots."""
+    ax.set_xlabel(xlabel, fontsize=ALPHA_LABELSIZE)
+    ax.set_ylabel(ylabel, fontsize=ALPHA_LABELSIZE)
+    ax.tick_params(axis="both", labelsize=ALPHA_TICKSIZE)
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    ax.xaxis.get_offset_text().set_fontsize(ALPHA_OFFSETSIZE)
 
 
 def _channel_names(
@@ -880,12 +895,10 @@ def plot_channel_panels(
                     zorder=1,
                 )
         ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
-        ax.set_xlabel(REWARD_XLABEL)
-        ax.set_ylabel(ylabel)
-        ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+        _style_alpha_axes(ax, xlabel=REWARD_XLABEL, ylabel=ylabel)
         if x.size:
             ax.set_xlim(left=0.0, right=float(np.nanmax(x)))
-        ax.legend(frameon=False, fontsize=8, loc="best")
+        ax.legend(frameon=False, fontsize=ALPHA_LEGENDSIZE, loc="best")
 
     for ax in axes_flat[len(labels) :]:
         ax.axis("off")
@@ -937,9 +950,7 @@ def plot_channel_with_runs(
                 ci=ci,
             )
             ax.axhline(0.0, color="black", linewidth=0.6, alpha=0.4)
-            ax.set_xlabel(REWARD_XLABEL)
-            ax.set_ylabel(pretty)
-            ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+            _style_alpha_axes(ax, xlabel=REWARD_XLABEL, ylabel=pretty)
             if x.size:
                 ax.set_xlim(left=0.0, right=float(np.nanmax(x)))
 
@@ -976,10 +987,8 @@ def plot_scalar_overlay(
                 alpha=0.18,
                 linewidth=0,
             )
-    ax.set_xlabel(REWARD_XLABEL)
-    ax.set_ylabel(ylabel)
-    ax.legend(frameon=False, loc="best")
-    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    _style_alpha_axes(ax, xlabel=REWARD_XLABEL, ylabel=ylabel)
+    ax.legend(frameon=False, loc="best", fontsize=ALPHA_LEGENDSIZE)
     if x_max > 0:
         ax.set_xlim(left=0.0, right=x_max)
     save_fig(fig, out_path)

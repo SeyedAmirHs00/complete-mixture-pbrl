@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
+
 
 def plot_init_scale_figure(table: pd.DataFrame, out: str) -> None:
     order = ["3R1A", "2R1A1N", "3R1N", "1R3A"]
@@ -47,7 +49,7 @@ def plot_init_scale_figure(table: pd.DataFrame, out: str) -> None:
         if ax is axes[-1]:
             ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(os.path.join(out, "init_scale_sweep.png"), dpi=200, bbox_inches="tight")
+    savefig_png_pdf(fig, os.path.join(out, "init_scale_sweep.png"), dpi=200, bbox_inches="tight")
     plt.close(fig)
 
     for cfg, letter in zip(order, letters):
@@ -73,7 +75,8 @@ def plot_init_scale_figure(table: pd.DataFrame, out: str) -> None:
         if letter == "d":
             ax.legend(fontsize=8)
         fig.tight_layout()
-        fig.savefig(
+        savefig_png_pdf(
+            fig,
             os.path.join(out, f"init_scale_sweep_{letter}_{cfg}.png"),
             dpi=200,
             bbox_inches="tight",

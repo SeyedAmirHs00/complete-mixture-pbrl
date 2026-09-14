@@ -66,6 +66,7 @@ def run_init_scale_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *
                     seeds=seeds,
                     steps=steps,
                     n_seg=n_seg,
+                    T=T,
                     q=0.0,
                     seed=9201 + 37 * idx,
                     theta_scale=theta_scales[t],
@@ -77,8 +78,8 @@ def run_init_scale_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *
                     "target_rms": t,
                     "step_sigma": t / np.sqrt(2 * T) if t > 0 else 0.0,
                     "init_rms_deltaR": rms0,
-                    "correct_branch_rate": float((rho > 0.05).mean()),
-                    "flipped_branch_rate": float((rho < -0.05).mean()),
+                    "correct_branch_rate": float((rho > 0.5).mean()),
+                    "flipped_branch_rate": float((rho < -0.5).mean()),
                     "mean_rho": float(rho.mean()),
                 }
                 rows.append(row)
@@ -121,7 +122,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

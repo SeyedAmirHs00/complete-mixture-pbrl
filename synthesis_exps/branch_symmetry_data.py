@@ -15,9 +15,15 @@ import pandas as pd
 
 from synthetic_shared_core import (
     DEFAULT_COEF_MAX_DELTA,
-    SHARED_BRANCH_VARIANTS,
+    SharedVariant,
     build_k4_configs,
     run_shared_variant,
+)
+
+# Paper default Standard init (rms|ΔR|_0 ≈ 1.4) + Stabilized (θ=0).
+BRANCH_VARIANTS = (
+    SharedVariant("standard", "Standard", target_rms=1.4, consensus_coef=0.0, use_tanh=True),
+    SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0, use_tanh=True),
 )
 
 
@@ -40,7 +46,7 @@ def run_branch_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *, co
     for cfg in order:
         betas = configs[cfg]
         k = len(betas)
-        for v in SHARED_BRANCH_VARIANTS:
+        for v in BRANCH_VARIANTS:
             idx += 1
             rho, abar, rms0 = run_shared_variant(
                 betas,
@@ -51,8 +57,8 @@ def run_branch_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *, co
                 cal_rng=cal_rng,
                 coef_max_delta=coef_max_delta,
             )
-            correct = rho > 0.05
-            flipped = rho < -0.05
+            correct = rho > 0.5
+            flipped = rho < -0.5
             if float(correct.mean()) >= float(flipped.mean()):
                 mask = correct
                 branch_tag = "correct"
@@ -99,7 +105,7 @@ def run_branch_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *, co
     table.to_csv(os.path.join(out_dir, "paper_table_synthetic_symmetry_fix.csv"), index=False)
 
     wide = table.pivot(index="config", columns="variant", values="correct_branch_rate")
-    wide = wide.reindex(columns=[v.name for v in SHARED_BRANCH_VARIANTS])
+    wide = wide.reindex(columns=[v.name for v in BRANCH_VARIANTS])
     wide.to_csv(os.path.join(out_dir, "branch_correct_wide.csv"))
 
     pd.DataFrame(bar_rows).to_csv(os.path.join(out_dir, "alpha_bar_stats.csv"), index=False)
@@ -118,7 +124,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

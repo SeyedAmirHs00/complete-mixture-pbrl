@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
+
 
 def plot_partial_adversary_figures(table: pd.DataFrame, out_dir: str, settings_order: list[str]) -> None:
     methods = [("stabilized", {}), ("standard", {})]
@@ -32,7 +34,8 @@ def plot_partial_adversary_figures(table: pd.DataFrame, out_dir: str, settings_o
     ax.legend()
     ax.grid(True, axis="y", ls=":", alpha=0.4)
     fig.tight_layout()
-    fig.savefig(
+    savefig_png_pdf(
+        fig,
         os.path.join(out_dir, "partial_adversary_correct_branch.png"),
         dpi=200,
         bbox_inches="tight",
@@ -57,7 +60,8 @@ def plot_partial_adversary_figures(table: pd.DataFrame, out_dir: str, settings_o
     ax.set_ylabel(r"mean $\bar\alpha$")
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(
+    savefig_png_pdf(
+        fig,
         os.path.join(out_dir, "partial_adversary_recovered_trust.png"),
         dpi=200,
         bbox_inches="tight",

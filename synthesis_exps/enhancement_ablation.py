@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 
 from enhancement_ablation_data import run_ablation_data
+from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA
 
 
 def main() -> None:
@@ -25,8 +26,8 @@ def main() -> None:
     p.add_argument(
         "--coef-max-delta",
         type=float,
-        default=0.1,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        default=DEFAULT_COEF_MAX_DELTA,
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

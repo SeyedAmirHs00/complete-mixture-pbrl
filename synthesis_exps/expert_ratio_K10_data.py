@@ -64,7 +64,7 @@ def run_expert_ratio_data(
                         "n_N": n_n,
                         "n_A": n_a,
                         "variant": v.name,
-                        "correct_branch_rate": float((rho > 0.05).mean()),
+                        "correct_branch_rate": float((rho > 0.5).mean()),
                         "mean_adv_trust": adv_trust,
                         "mean_noisy_trust": noisy_trust,
                         "mean_rel_trust": rel_trust,
@@ -92,7 +92,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

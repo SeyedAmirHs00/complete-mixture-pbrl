@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
 from synthetic_shared_core import SHARED_BRANCH_VARIANTS
 
 
@@ -44,7 +45,9 @@ def plot_T_figure(df: pd.DataFrame, out_root: str, Ts) -> None:
     axes[0].set_ylabel("Correct-branch rate (%)")
     axes[-1].legend(loc="best", fontsize=9)
     fig.tight_layout()
-    fig.savefig(os.path.join(out_root, "T_sweep_lr_scaled.png"), dpi=200, bbox_inches="tight")
+    savefig_png_pdf(
+        fig, os.path.join(out_root, "T_sweep_lr_scaled.png"), dpi=200, bbox_inches="tight"
+    )
     plt.close(fig)
 
     for cfg, letter in zip(order, letters):
@@ -71,7 +74,8 @@ def plot_T_figure(df: pd.DataFrame, out_root: str, Ts) -> None:
         if letter == "c":
             ax.legend(loc="best", fontsize=9)
         fig.tight_layout()
-        fig.savefig(
+        savefig_png_pdf(
+            fig,
             os.path.join(out_root, f"T_sweep_lr_scaled_{letter}_{cfg}.png"),
             dpi=200,
             bbox_inches="tight",

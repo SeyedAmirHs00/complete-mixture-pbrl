@@ -80,10 +80,10 @@ SUMMARY_CSV_NAME = "partial_adversary_alpha_curve_summary.csv"
 METHOD_SPECS: Dict[str, Dict[str, float]] = {
     # Linear head: target_rms controls θ init scale (0 ⇒ θ=0).
     "stabilized": {"target_rms": 0.0, "consensus_coef": 0.0},
-    "standard": {"target_rms": 100.0, "consensus_coef": 0.0},
+    "standard": {"target_rms": 50.0, "consensus_coef": 0.0},
     # Non-trivial weights (same as standard) but reward is
     # R(x) = f_θ(x) − stopgrad(f_θ₀(x)) so R≡0 at initialization.
-    "subtract_init": {"target_rms": 100.0, "consensus_coef": 0.0},
+    "subtract_init": {"target_rms": 50.0, "consensus_coef": 0.0},
 }
 
 # Default (lr_model, lr_alpha) per optimizer when CLI does not override.
@@ -820,7 +820,7 @@ def run_alpha_curve_experiment(
                     "optimizer": optimizer,
                     "lr_model": lr_model,
                     "lr_alpha": lr_alpha,
-                    "correct": float((rho > 0.05).mean()),
+                    "correct": float((rho > 0.5).mean()),
                     "mean_rho": float(rho.mean()),
                     "abar_R": float(abar[:, :3].mean()),
                     "abar_A": float(abar[:, 3].mean()),
@@ -908,7 +908,7 @@ def parse_args() -> argparse.Namespace:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change to this value after each optimizer step (default: 0.1; set <=0 to disable).",
+        help="Limit per-expert coef change after each optimizer step (default: 0 disables).",
     )
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--n-layers", type=int, default=3)

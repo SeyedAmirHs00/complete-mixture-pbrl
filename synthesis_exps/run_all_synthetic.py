@@ -42,13 +42,13 @@ def main() -> None:
         return
 
     runs = [
-        ("branch_symmetry.py", ["--seeds", str(args.seeds), *common]),
+        # ("branch_symmetry.py", ["--seeds", str(args.seeds), *common]),
         ("init_scale_sweep.py", ["--seeds", str(args.seeds), *common]),
         ("expert_ratio_K10.py", ["--seeds", str(min(args.seeds, 100)), *common]),
         ("overlap_sweep.py", ["--seeds", str(min(args.seeds, 120)), *common]),
         ("partial_adversary.py", ["--seeds", str(args.seeds), *common]),
         ("partial_adversary_alpha_curve.py", ["--seeds", str(args.seeds), *common]),
-        ("T_sweep_lr_scaled.py", ["--seeds", str(min(args.seeds, 120)), *common]),
+        # ("T_sweep_lr_scaled.py", ["--seeds", str(min(args.seeds, 120)), *common]),
         ("enhancement_ablation.py", ["--seeds", str(args.seeds), *common]),
     ]
     for script, flags in runs:

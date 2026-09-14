@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
 from synthetic_shared_core import SHARED_BRANCH_VARIANTS
 
 
@@ -135,7 +136,7 @@ def plot_heatmaps(
         cbar.set_label(cbar_label, fontsize=9)
 
     combined = os.path.join(out_dir, "expert_ratio_sweep.png")
-    fig.savefig(combined, dpi=220, bbox_inches="tight", facecolor="white")
+    savefig_png_pdf(fig, combined, dpi=220, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
     def row_fig(
@@ -177,7 +178,9 @@ def plot_heatmaps(
             )
         cb = f.colorbar(im, cax=cax)
         cb.set_label(cbar_label, fontsize=9)
-        f.savefig(os.path.join(out_dir, fname), dpi=220, bbox_inches="tight", facecolor="white")
+        savefig_png_pdf(
+            f, os.path.join(out_dir, fname), dpi=220, bbox_inches="tight", facecolor="white"
+        )
         plt.close(f)
 
     for key, _row_caption, cbar_label, vmin, vmax, signed, cmap in rows:

@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
+
 HIST_CSV_NAME = "alpha_learning_curve_per_step.csv"
 EXPERT_COLORS = {0: "#1f77b4", 1: "#2ca02c", 2: "#ff7f0e", 3: "#d62728"}
 EXPERT_LABELS = {
@@ -136,7 +138,7 @@ def plot_curves(
         fontsize=11,
     )
     fig.tight_layout()
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    savefig_png_pdf(fig, out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_path}")
 
@@ -170,7 +172,7 @@ def plot_per_seed(
         fig.tight_layout()
         fname = f"alpha_curve_{tag}_{sname}_{mname}_seed{sid}.png".replace("/", "_")
         out_path = os.path.join(out_dir, fname)
-        fig.savefig(out_path, dpi=200, bbox_inches="tight")
+        savefig_png_pdf(fig, out_path, dpi=200, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved {out_path}")
 
@@ -242,7 +244,7 @@ def plot_per_experiment(
         fig.tight_layout()
         fname_combo = f"alpha_curve_{sname}_{mname}.png".replace("/", "_")
         out_path_combo = os.path.join(out_dir, fname_combo)
-        fig.savefig(out_path_combo, dpi=200, bbox_inches="tight")
+        savefig_png_pdf(fig, out_path_combo, dpi=200, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved {out_path_combo}")
 
@@ -282,7 +284,7 @@ def plot_per_experiment(
             fig_s.tight_layout()
             fname_s = f"alpha_curve_{tag}_{sname}_{mname}.png".replace("/", "_")
             out_path_s = os.path.join(out_dir, fname_s)
-            fig_s.savefig(out_path_s, dpi=200, bbox_inches="tight")
+            savefig_png_pdf(fig_s, out_path_s, dpi=200, bbox_inches="tight")
             plt.close(fig_s)
             print(f"Saved {out_path_s}")
 

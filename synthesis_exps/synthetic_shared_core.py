@@ -33,7 +33,7 @@ def rowwise_corr(x: np.ndarray, y: np.ndarray, eps: float = 1e-12) -> np.ndarray
 # Back-compat aliases used by runners
 sigmoid = sigmoid_np
 
-DEFAULT_COEF_MAX_DELTA = 0.1
+DEFAULT_COEF_MAX_DELTA = 0.0  # <=0 disables per-step trust coef clamp
 
 
 def clamp_coef_after_step(
@@ -88,8 +88,8 @@ class SharedVariant:
 
 
 SHARED_BRANCH_VARIANTS = (
-    # Linear head so init rms|ΔR| can reach ~100 (tanh saturates near √(2T)≈10 at T=50).
-    SharedVariant("standard", "Standard", target_rms=100.0, consensus_coef=0.0, use_tanh=False),
+    # Linear head so init rms|ΔR| can reach ~50 (tanh saturates near √(2T)≈10 at T=50).
+    SharedVariant("standard", "Standard", target_rms=50.0, consensus_coef=0.0, use_tanh=False),
     SharedVariant("stabilized", "Stabilized", target_rms=0.0, consensus_coef=0.0, use_tanh=False),
 )
 

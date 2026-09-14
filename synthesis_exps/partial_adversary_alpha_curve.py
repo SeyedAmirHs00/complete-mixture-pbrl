@@ -74,7 +74,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--n-layers", type=int, default=3)

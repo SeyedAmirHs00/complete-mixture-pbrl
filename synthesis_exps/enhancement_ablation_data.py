@@ -90,7 +90,7 @@ def summarize(variant: SharedVariant, rho: np.ndarray, abar: np.ndarray) -> dict
         "use_maxnorm": variant.use_maxnorm,
         "use_w": variant.use_confidence_weights,
         "detach_w": variant.detach_weights,
-        "correct": float((rho > 0.05).mean()),
+        "correct": float((rho > 0.5).mean()),
         "mean_abs_corr": float(np.abs(rho).mean()),
         "mean_signed_corr": float(rho.mean()),
         "abar_R": float(abar[:, :2].mean()),
@@ -157,7 +157,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 

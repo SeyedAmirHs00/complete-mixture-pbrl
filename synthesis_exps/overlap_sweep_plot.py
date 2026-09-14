@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from plot_utils import savefig_png_pdf
+
 
 def plot_overlap_figure(table: pd.DataFrame, out_dir: str) -> None:
     colors = {"ttp": "#4c72b0", "no_alpha": "#dd8452", "ds_sym": "#55a868"}
@@ -50,7 +52,8 @@ def plot_overlap_figure(table: pd.DataFrame, out_dir: str) -> None:
     ax.grid(True, ls=":", alpha=0.4)
 
     fig.tight_layout()
-    fig.savefig(
+    savefig_png_pdf(
+        fig,
         os.path.join(out_dir, "3R1A_overlap_global_vs_local.png"),
         dpi=200,
         bbox_inches="tight",

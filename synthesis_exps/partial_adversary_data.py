@@ -34,7 +34,7 @@ SETTINGS: List[Tuple[str, Dict[str, Optional[float]]]] = [
 
 METHODS: List[Tuple[str, Dict[str, float]]] = [
     ("stabilized", dict(target_rms=0.0, consensus_coef=0.0)),
-    ("standard", dict(target_rms=100.0, consensus_coef=0.0)),
+    ("standard", dict(target_rms=50.0, consensus_coef=0.0)),
 ]
 
 METHOD_SEED_ORDER: Tuple[str, ...] = tuple(m for m, _ in METHODS)
@@ -216,7 +216,7 @@ def run_partial_adversary_data(
                 {
                     "setting": sname,
                     "method": mname,
-                    "correct": float((rho > 0.05).mean()),
+                    "correct": float((rho > 0.5).mean()),
                     "mean_rho": float(rho.mean()),
                     "abar_R": float(abar[:, :3].mean()),
                     "abar_A": float(abar[:, 3].mean()),
@@ -242,7 +242,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     p.add_argument("--overwrite", action="store_true")
     args = p.parse_args()

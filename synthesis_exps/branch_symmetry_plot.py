@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from synthetic_shared_core import SHARED_BRANCH_VARIANTS, build_k4_configs
+from branch_symmetry_data import BRANCH_VARIANTS
+from plot_utils import savefig_png_pdf
+from synthetic_shared_core import build_k4_configs
 
 
 def plot_branch_bars(out: str) -> None:
@@ -26,9 +28,9 @@ def plot_branch_bars(out: str) -> None:
         k = len(betas)
         fig, ax = plt.subplots(figsize=(5.2, 3.4))
         x = np.arange(k)
-        n_v = len(SHARED_BRANCH_VARIANTS)
+        n_v = len(BRANCH_VARIANTS)
         width = 0.35 if n_v == 2 else 0.25
-        for vi, v in enumerate(SHARED_BRANCH_VARIANTS):
+        for vi, v in enumerate(BRANCH_VARIANTS):
             sub = stats[(stats.config == cfg) & (stats.variant == v.name)].sort_values("expert_idx")
             mean = sub["mean_abar"].to_numpy()
             std = sub["std_abar"].to_numpy()
@@ -57,7 +59,9 @@ def plot_branch_bars(out: str) -> None:
         ax.legend(fontsize=8)
         ax.grid(True, axis="y", ls=":", alpha=0.4)
         fig.tight_layout()
-        fig.savefig(os.path.join(out, f"alpha_bar_{cfg}.png"), dpi=200, bbox_inches="tight")
+        savefig_png_pdf(
+            fig, os.path.join(out, f"alpha_bar_{cfg}.png"), dpi=200, bbox_inches="tight"
+        )
         plt.close(fig)
 
 

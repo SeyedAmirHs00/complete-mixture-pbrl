@@ -238,7 +238,7 @@ def run_overlap_data(
                 "signed_q25": float(np.percentile(rho, 25)),
                 "signed_q75": float(np.percentile(rho, 75)),
                 "local_med": float(np.mean(loc)),
-                "correct": float((rho > 0.05).mean()),
+                "correct": float((rho > 0.5).mean()),
                 "mean_abar_A": aA,
             }
             rows.append(row)
@@ -263,7 +263,7 @@ def main() -> None:
         "--coef-max-delta",
         type=float,
         default=DEFAULT_COEF_MAX_DELTA,
-        help="Limit per-expert coef change after each step (default: 0.1; <=0 disables).",
+        help="Limit per-expert coef change after each step (default: 0 disables).",
     )
     args = p.parse_args()
 
