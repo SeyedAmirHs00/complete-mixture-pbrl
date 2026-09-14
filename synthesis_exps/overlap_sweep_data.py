@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import time
 from typing import Optional, Tuple
 
 import numpy as np
@@ -16,7 +17,13 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
-from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA, clamp_coef_after_step, rowwise_corr, sigmoid_np
+from synthetic_shared_core import (
+    DEFAULT_COEF_MAX_DELTA,
+    clamp_coef_after_step,
+    get_device,
+    rowwise_corr,
+    sigmoid_np,
+)
 
 
 def _returns(states: torch.Tensor, theta: torch.Tensor) -> torch.Tensor:
@@ -160,8 +167,23 @@ def run_overlap_data(
     qs = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
     methods = ("ttp", "no_alpha", "ds_sym")
     rows = []
+    device = get_device()
+    n_jobs = len(qs) * len(methods)
+    t0 = time.perf_counter()
+    print(
+        f"[overlap] device={device} seeds={seeds} steps={steps} "
+        f"qs={qs} methods={list(methods)} jobs={n_jobs} "
+        f"coef_max_delta={coef_max_delta} out_dir={out_dir}",
+        flush=True,
+    )
 
+    job = 0
     for qi, q in enumerate(qs):
+        print(
+            f"[overlap] q={q:<4g} ({qi + 1}/{len(qs)}) building data "
+            f"(n_shared≈{int(round(q * m))}/{m}) ...",
+            flush=True,
+        )
         rng = np.random.default_rng(7000 + qi)
         theta_star = rng.normal(size=(seeds, d))
         theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
@@ -204,12 +226,18 @@ def run_overlap_data(
             )
             y_np[:, e] = (rng.random((seeds, m)) < sigmoid_np(betas[e] * dstar)).astype(float)
 
-        states = torch.as_tensor(states_np, dtype=torch.float32)
-        i_all = torch.as_tensor(i_all_np, dtype=torch.long)
-        j_all = torch.as_tensor(j_all_np, dtype=torch.long)
-        y = torch.as_tensor(y_np, dtype=torch.float32)
+        states = torch.as_tensor(states_np, dtype=torch.float32, device=device)
+        i_all = torch.as_tensor(i_all_np, dtype=torch.long, device=device)
+        j_all = torch.as_tensor(j_all_np, dtype=torch.long, device=device)
+        y = torch.as_tensor(y_np, dtype=torch.float32, device=device)
 
         for method in methods:
+            job += 1
+            print(
+                f"[overlap] [{job}/{n_jobs}] q={q:<4g} {method:8s} training ({steps} steps) ...",
+                flush=True,
+            )
+            t_job = time.perf_counter()
             if method == "ttp":
                 R, abar = train_ttp(
                     states, i_all, j_all, y, steps=steps, fix_alpha=False, coef_max_delta=coef_max_delta
@@ -242,14 +270,20 @@ def run_overlap_data(
                 "mean_abar_A": aA,
             }
             rows.append(row)
+            dt = time.perf_counter() - t_job
+            elapsed = time.perf_counter() - t0
             print(
-                f"q={q:<4g} {method:8s} |rho|_med={row['global_med']:.3f} "
-                f"rho_med={row['signed_med']:+.3f} correct={row['correct']:.3f}"
+                f"[overlap] [{job}/{n_jobs}] q={q:<4g} {method:8s} "
+                f"|rho|_med={row['global_med']:.3f} rho_med={row['signed_med']:+.3f} "
+                f"correct={row['correct']:.3f}  ({dt:.1f}s job, {elapsed:.1f}s total)",
+                flush=True,
             )
 
     table = pd.DataFrame(rows)
     table.to_csv(os.path.join(out_dir, "overlap_shared.csv"), index=False)
-    print(f"OUT overlap data: {out_dir}")
+    elapsed = time.perf_counter() - t0
+    print(f"[overlap] done in {elapsed:.1f}s → {out_dir}", flush=True)
+    print(f"OUT overlap data: {out_dir}", flush=True)
     return out_dir
 
 

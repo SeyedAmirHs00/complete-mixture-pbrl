@@ -16,6 +16,7 @@ import pandas as pd
 
 from synthetic_shared_core import (
     DEFAULT_COEF_MAX_DELTA,
+    DEFAULT_STANDARD_TARGET_RMS,
     clamp_coef_after_step,
     sample_expert_pairs,
     sigmoid,
@@ -34,7 +35,7 @@ SETTINGS: List[Tuple[str, Dict[str, Optional[float]]]] = [
 
 METHODS: List[Tuple[str, Dict[str, float]]] = [
     ("stabilized", dict(target_rms=0.0, consensus_coef=0.0)),
-    ("standard", dict(target_rms=50.0, consensus_coef=0.0)),
+    ("standard", dict(target_rms=DEFAULT_STANDARD_TARGET_RMS, consensus_coef=0.0)),
 ]
 
 METHOD_SEED_ORDER: Tuple[str, ...] = tuple(m for m, _ in METHODS)
@@ -105,14 +106,11 @@ def run_with_stochastic_adv(
     lr_alpha: float = 0.005,
     coef_max_delta: Optional[float] = DEFAULT_COEF_MAX_DELTA,
 ) -> tuple[np.ndarray, np.ndarray]:
-    from synthetic_shared_core import calibrate_theta_scale
+    from synthetic_shared_core import init_theta0
 
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
 
-    theta_scale = calibrate_theta_scale(
-        target_rms, seeds=40, n_seg=n_seg, T=T, d=d, rng=rng, use_tanh=False
-    )
     theta_star = rng.normal(size=(seeds, d))
     theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
     states = rng.normal(size=(seeds, n_seg, T, d))
@@ -125,16 +123,15 @@ def run_with_stochastic_adv(
     )
 
     consensus_target = y.mean(1)
-    if theta_scale == 0:
-        theta0 = np.zeros((seeds, d))
-    else:
-        theta0 = rng.normal(scale=theta_scale / np.sqrt(d), size=(seeds, d))
+    theta0 = init_theta0(
+        target_rms, seeds=seeds, d=d, rng=rng, n_seg=n_seg, T=T, use_tanh=False
+    )
 
     import torch
     import torch.nn.functional as F
-    from synthetic_shared_core import _segment_returns, rowwise_corr
+    from synthetic_shared_core import _segment_returns, get_device, rowwise_corr
 
-    device = torch.device("cpu")
+    device = get_device()
     states_t = torch.as_tensor(states, dtype=torch.float32, device=device)
     i_t = torch.as_tensor(i, dtype=torch.long, device=device)
     j_t = torch.as_tensor(j, dtype=torch.long, device=device)

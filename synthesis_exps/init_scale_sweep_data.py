@@ -34,7 +34,7 @@ def run_init_scale_data(out_dir: str, seeds: int, steps: int, overwrite: bool, *
     ensure_dir(out_dir, overwrite)
     configs = build_k4_configs()
     order = ["3R1A", "2R1A1N", "3R1N", "1R3A"]
-    targets = [0.0, 0.05, 0.1, 0.25, 0.5, 1.4, 6.0, 100.0]
+    targets = [0.0, 0.05, 0.1, 0.25, 0.5, 1.4, 6.0]
     T = 50
     n_seg = 500
     methods = [

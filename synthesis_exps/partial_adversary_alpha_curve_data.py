@@ -66,10 +66,11 @@ from partial_adversary_data import (
 )
 from synthetic_shared_core import (
     DEFAULT_COEF_MAX_DELTA,
+    DEFAULT_STANDARD_TARGET_RMS,
     _segment_returns,
-    calibrate_theta_scale,
     clamp_coef_after_step,
     get_device,
+    init_theta0,
     rowwise_corr,
     sample_expert_pairs,
 )
@@ -78,12 +79,12 @@ HIST_CSV_NAME = "alpha_learning_curve_per_step.csv"
 SUMMARY_CSV_NAME = "partial_adversary_alpha_curve_summary.csv"
 
 METHOD_SPECS: Dict[str, Dict[str, float]] = {
-    # Linear head: target_rms controls θ init scale (0 ⇒ θ=0).
+    # Standard: rms|ΔR|_0 ≈ 1.4; Stabilized: θ=0.
     "stabilized": {"target_rms": 0.0, "consensus_coef": 0.0},
-    "standard": {"target_rms": 50.0, "consensus_coef": 0.0},
-    # Non-trivial weights (same as standard) but reward is
+    "standard": {"target_rms": DEFAULT_STANDARD_TARGET_RMS, "consensus_coef": 0.0},
+    # Same init as standard, but reward is
     # R(x) = f_θ(x) − stopgrad(f_θ₀(x)) so R≡0 at initialization.
-    "subtract_init": {"target_rms": 50.0, "consensus_coef": 0.0},
+    "subtract_init": {"target_rms": DEFAULT_STANDARD_TARGET_RMS, "consensus_coef": 0.0},
 }
 
 # Default (lr_model, lr_alpha) per optimizer when CLI does not override.
@@ -322,9 +323,6 @@ def run_linear_with_alpha_history(
     rng = np.random.default_rng(seed)
     k, T, d = 4, 50, 16
 
-    theta_scale = calibrate_theta_scale(
-        target_rms, seeds=40, n_seg=n_seg, T=T, d=d, rng=rng, use_tanh=False
-    )
     theta_star = rng.normal(size=(seeds, d))
     theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
     states = rng.normal(size=(seeds, n_seg, T, d))
@@ -337,10 +335,9 @@ def run_linear_with_alpha_history(
     )
     consensus_target = y.mean(1)
 
-    if theta_scale == 0:
-        theta0 = np.zeros((seeds, d))
-    else:
-        theta0 = rng.normal(scale=theta_scale / np.sqrt(d), size=(seeds, d))
+    theta0 = init_theta0(
+        target_rms, seeds=seeds, d=d, rng=rng, n_seg=n_seg, T=T, use_tanh=False
+    )
 
     device = get_device()
     states_t = torch.as_tensor(states, dtype=torch.float32, device=device)
