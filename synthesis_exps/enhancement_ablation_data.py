@@ -91,7 +91,7 @@ def summarize(variant: SharedVariant, rho: np.ndarray, abar: np.ndarray) -> dict
         "use_w": variant.use_confidence_weights,
         "detach_w": variant.detach_weights,
         "correct": float((rho > 0.5).mean()),
-        "mean_abs_corr": float(np.abs(rho).mean()),
+        # Signed (real) Pearson corr with r*; not |ρ|.
         "mean_signed_corr": float(rho.mean()),
         "abar_R": float(abar[:, :2].mean()),
         "abar_N": float(abar[:, 2].mean()),
@@ -133,7 +133,7 @@ def run_ablation_data(
         rows.append(row)
         print(
             f"[{CFG}] {v.name:10s} correct={row['correct']:.3f} "
-            f"|corr|={row['mean_abs_corr']:.3f} "
+            f"corr={row['mean_signed_corr']:+.3f} "
             f"aR={row['abar_R']:+.3f} aN={row['abar_N']:+.3f} aA={row['abar_A']:+.3f}"
         )
 
