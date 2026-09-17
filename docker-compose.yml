@@ -12,6 +12,9 @@ services:
       - MUJOCO_GL=egl
       - MUJOCO_VERSION=210
       - MUJOCO_DIR=/root/.mujoco
+      # Override dockerfile LD_PRELOAD (libGL/libGLEW). That preload breaks NVIDIA
+      # EGL offscreen rendering needed for MetaWorld videos (record_agent_video.py).
+      - LD_PRELOAD=
     volumes:
       - .:/workspace   # Mount your local project
     working_dir: /workspace
