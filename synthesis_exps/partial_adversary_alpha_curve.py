@@ -42,7 +42,7 @@ def main() -> None:
         "--methods",
         nargs="+",
         choices=["stabilized", "standard", "subtract_init"],
-        default=["stabilized", "standard"],
+        default=["stabilized"],
         help="Init variants (default: stabilized and standard; Standard uses rms|ΔR|≈1.4).",
     )
     p.add_argument(
@@ -79,6 +79,18 @@ def main() -> None:
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--n-layers", type=int, default=3)
     p.add_argument("--overwrite", action="store_true")
+    p.add_argument(
+        "--plot",
+        action="store_true",
+        default=True,
+        help="Generate figures after training (default: True).",
+    )
+    p.add_argument(
+        "--no-plot",
+        dest="plot",
+        action="store_false",
+        help="Skip figure generation.",
+    )
     p.add_argument("--replot", action="store_true", help="Only regenerate figures from CSV")
     p.add_argument("--plot-ci", choices=["std", "sem", "var", "none"], default="std")
     p.add_argument("--plot-per-seed", action="store_true")
@@ -128,13 +140,14 @@ def main() -> None:
     )
     hist_df.to_csv(hist_path, index=False)
     summary_df.to_csv(os.path.join(args.out_dir, SUMMARY_CSV_NAME), index=False)
-    write_alpha_curve_figures(
-        hist_df,
-        args.out_dir,
-        ci=args.plot_ci,
-        per_experiment=True,
-        per_seed=args.plot_per_seed,
-    )
+    if args.plot:
+        write_alpha_curve_figures(
+            hist_df,
+            args.out_dir,
+            ci=args.plot_ci,
+            per_experiment=True,
+            per_seed=args.plot_per_seed,
+        )
     print(f"OUT: {args.out_dir}")
 
 

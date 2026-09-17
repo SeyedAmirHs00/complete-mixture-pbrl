@@ -11,10 +11,11 @@ Defaults match the disjoint robotics regime: n_seg=500, q=0 (no shared pairs).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -80,6 +81,159 @@ def clamp_coef_after_step(
 
 # Paper default Standard init: calibrate θ so rms|ΔR|_0 ≈ 1.4.
 DEFAULT_STANDARD_TARGET_RMS = 1.4
+
+
+# ---------------------------------------------------------------------------
+# MLP reward architecture & teacher helpers
+# ---------------------------------------------------------------------------
+
+
+class RewardMLP(nn.Module):
+    """PEBBLE-style reward: d → H×L → 1, Tanh out; R = Σ_t r(s_t)."""
+
+    def __init__(self, d: int, hidden: int = 128, n_layers: int = 3):
+        super().__init__()
+        layers: List[nn.Module] = []
+        din = d
+        for _ in range(n_layers):
+            layers.append(nn.Linear(din, hidden))
+            layers.append(nn.LeakyReLU(0.01))
+            din = hidden
+        layers.append(nn.Linear(din, 1))
+        layers.append(nn.Tanh())
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, states: torch.Tensor) -> torch.Tensor:
+        n, t, d = states.shape
+        r = self.net(states.reshape(n * t, d)).reshape(n, t)
+        return r.sum(dim=1)
+
+    def last_linear(self) -> nn.Linear:
+        """Return the final Linear (just before Tanh)."""
+        for layer in reversed(list(self.net.children())):
+            if isinstance(layer, nn.Linear):
+                return layer
+        raise ValueError("RewardMLP has no Linear layers")
+
+    def zero_last_layer(self) -> None:
+        """Stabilized init: set final Linear weight and bias to 0 (⇒ R≡0)."""
+        last = self.last_linear()
+        with torch.no_grad():
+            last.weight.zero_()
+            if last.bias is not None:
+                last.bias.zero_()
+
+
+def apply_mlp_init(net: RewardMLP, method: str) -> None:
+    """Apply learner weight init.
+
+    - stabilized: zero last Linear (⇒ R≡0 directly)
+    - standard / subtract_init: keep PyTorch default weights
+    """
+    if method in ("standard", "subtract_init"):
+        return
+    if method == "stabilized":
+        net.zero_last_layer()
+        return
+    raise ValueError(f"unknown MLP init method={method!r}")
+
+
+@torch.no_grad()
+def mlp_teacher_returns(
+    states: np.ndarray,
+    *,
+    d: int,
+    torch_seed: int,
+    device: torch.device,
+    hidden: int = 128,
+    n_layers: int = 3,
+) -> np.ndarray:
+    torch.manual_seed(torch_seed)
+    teacher = RewardMLP(d, hidden=hidden, n_layers=n_layers).to(device)
+    teacher.eval()
+    for p in teacher.parameters():
+        p.requires_grad_(False)
+    st = torch.as_tensor(states, dtype=torch.float32, device=device)
+    return teacher(st).cpu().numpy()
+
+
+OPTIMIZER_DEFAULT_LRS: Dict[str, Tuple[float, float]] = {
+    "sgd": (0.05, 0.005),
+    "adam": (3e-4, 1e-4),
+    "adamw": (3e-4, 1e-4),
+    "adam_sgd": (3e-4, 5e-4),
+}
+DEFAULT_WEIGHT_DECAY_ADAMW = 1e-2
+
+
+@dataclass
+class OptimizerBundle:
+    opts: Tuple[torch.optim.Optimizer, ...]
+    name: str
+    lr_model: float
+    lr_alpha: float
+
+    def zero_grad(self) -> None:
+        for opt in self.opts:
+            opt.zero_grad(set_to_none=True)
+
+    def step(self) -> None:
+        for opt in self.opts:
+            opt.step()
+
+
+def make_optimizers(
+    name: str,
+    model_params: Iterable[nn.Parameter],
+    alpha: nn.Parameter,
+    *,
+    lr_model: float,
+    lr_alpha: float,
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
+) -> OptimizerBundle:
+    params = list(model_params)
+    if name == "sgd":
+        opt = torch.optim.SGD(
+            [
+                {"params": params, "lr": lr_model},
+                {"params": [alpha], "lr": lr_alpha},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adam":
+        opt = torch.optim.Adam(
+            [
+                {"params": params, "lr": lr_model},
+                {"params": [alpha], "lr": lr_alpha},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adamw":
+        opt = torch.optim.AdamW(
+            [
+                {"params": params, "lr": lr_model, "weight_decay": weight_decay_model},
+                {"params": [alpha], "lr": lr_alpha, "weight_decay": 0.0},
+            ]
+        )
+        return OptimizerBundle((opt,), name, lr_model, lr_alpha)
+    if name == "adam_sgd":
+        opt_reward = torch.optim.Adam(params, lr=lr_model)
+        opt_alpha = torch.optim.SGD([alpha], lr=lr_alpha)
+        return OptimizerBundle((opt_reward, opt_alpha), name, lr_model, lr_alpha)
+    raise ValueError(f"unknown optimizer={name!r}")
+
+
+def resolve_lrs(
+    optimizer: str,
+    lr_model: Optional[float],
+    lr_alpha: Optional[float],
+) -> Tuple[float, float]:
+    d_model, d_alpha = OPTIMIZER_DEFAULT_LRS[optimizer]
+    return (
+        d_model if lr_model is None else float(lr_model),
+        d_alpha if lr_alpha is None else float(lr_alpha),
+    )
+
 
 
 @dataclass(frozen=True)
@@ -254,7 +408,7 @@ def sample_expert_pairs(
 
 
 def run_shared_variant(
-    betas: Tuple[float, ...],
+    betas: Sequence[float] | Tuple[float, ...],
     variant: SharedVariant,
     *,
     seeds: int,
@@ -264,14 +418,19 @@ def run_shared_variant(
     pairs: int = 256,
     q: float = 0.0,
     steps: int = 400,
-    lr_theta: float = 0.05,
-    lr_alpha: float = 0.005,
+    lr_theta: Optional[float] = None,
+    lr_alpha: Optional[float] = None,
     alpha_init: float = 0.01,
     seed: int = 0,
     theta_scale: Optional[float] = None,
     cal_rng: Optional[np.random.Generator] = None,
     device: Optional[torch.device] = None,
     coef_max_delta: Optional[float] = DEFAULT_COEF_MAX_DELTA,
+    reward_model: str = "linear",
+    hidden: int = 128,
+    n_layers: int = 3,
+    optimizer: str = "sgd",
+    weight_decay_model: float = DEFAULT_WEIGHT_DECAY_ADAMW,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Returns
@@ -284,6 +443,138 @@ def run_shared_variant(
     rng = np.random.default_rng(seed)
     k = len(betas)
     b = np.asarray(betas, dtype=np.float64)
+
+    if reward_model == "mlp":
+        def_model, def_alpha = resolve_lrs(optimizer, lr_theta, lr_alpha)
+        lr_m = def_model if lr_theta is None else float(lr_theta)
+        lr_a = def_alpha if lr_alpha is None else float(lr_alpha)
+
+        states_np = rng.normal(size=(seeds, n_seg, T, d)).astype(np.float32)
+        r_star = np.zeros((seeds, n_seg), dtype=np.float64)
+        for s in range(seeds):
+            r = mlp_teacher_returns(
+                states_np[s],
+                d=d,
+                torch_seed=seed + 10_000 + 97 * s,
+                device=device,
+                hidden=hidden,
+                n_layers=n_layers,
+            )
+            r_star[s] = (r - r.mean()) / (r.std() + 1e-12)
+
+        i_np, j_np = sample_expert_pairs(rng, seeds=seeds, k=k, n_seg=n_seg, pairs=pairs, q=q)
+        y_np = np.zeros((seeds, k, pairs), dtype=np.float64)
+        for e in range(k):
+            d_star = np.take_along_axis(r_star, i_np[:, e], 1) - np.take_along_axis(
+                r_star, j_np[:, e], 1
+            )
+            y_np[:, e] = (rng.random((seeds, pairs)) < sigmoid_np(b[e] * d_star)).astype(np.float64)
+        consensus_np = y_np.mean(1)
+
+        rhos = np.zeros(seeds, dtype=np.float64)
+        abars = np.zeros((seeds, k), dtype=np.float64)
+        init_rms_total = 0.0
+
+        for s in range(seeds):
+            net = RewardMLP(d, hidden=hidden, n_layers=n_layers).to(device)
+            if variant.target_rms is not None and variant.target_rms <= 0.0:
+                net.zero_last_layer()
+
+            st = torch.as_tensor(states_np[s], dtype=torch.float32, device=device)
+            i = torch.as_tensor(i_np[s], dtype=torch.long, device=device)
+            j = torch.as_tensor(j_np[s], dtype=torch.long, device=device)
+            y = torch.as_tensor(y_np[s], dtype=torch.float32, device=device)
+            y_bar = torch.as_tensor(consensus_np[s], dtype=torch.float32, device=device)
+
+            with torch.no_grad():
+                R0 = net(st)
+                d0 = R0[i] - R0[j]
+                init_rms_total += float(torch.sqrt((d0**2).mean()).item())
+
+            alpha = torch.nn.Parameter(torch.full((k,), float(alpha_init), device=device))
+            opt = make_optimizers(
+                optimizer,
+                net.parameters(),
+                alpha,
+                lr_model=lr_m,
+                lr_alpha=lr_a,
+                weight_decay_model=weight_decay_model,
+            )
+
+            for _ in range(steps):
+                opt.zero_grad()
+                R = net(st)
+                delta = R[i] - R[j]  # [k, pairs]
+
+                if variant.use_alpha_tanh:
+                    trust = torch.tanh(alpha)
+                else:
+                    trust = alpha
+
+                abs_t = trust.abs()
+                if variant.use_maxnorm:
+                    denom = abs_t.amax().clamp_min(1e-12)
+                    if variant.detach_maxnorm:
+                        denom = denom.detach()
+                    coef = trust / denom
+                else:
+                    coef = trust
+
+                coef_before = coef.detach().clone()
+
+                if variant.use_confidence_weights:
+                    w = k * abs_t / abs_t.sum().clamp_min(1e-12)
+                    if variant.detach_weights:
+                        w = w.detach()
+                else:
+                    w = torch.ones(k, device=device)
+
+                logits_R = coef.detach().unsqueeze(1) * delta
+                bce_R = F.binary_cross_entropy_with_logits(logits_R, y, reduction="none")
+                loss_R = (w.unsqueeze(1) * bce_R).mean()
+
+                if variant.consensus_coef > 0.0:
+                    loss_R = loss_R + variant.consensus_coef * F.binary_cross_entropy_with_logits(
+                        delta.mean(dim=0), y_bar, reduction="none"
+                    ).mean()
+
+                logits_A = coef.unsqueeze(1) * delta.detach()
+                if variant.detach_weights or not variant.use_confidence_weights:
+                    loss_A = F.binary_cross_entropy_with_logits(logits_A, y, reduction="none").mean()
+                else:
+                    bce_A = F.binary_cross_entropy_with_logits(logits_A, y, reduction="none")
+                    loss_A = (w.unsqueeze(1) * bce_A).mean()
+
+                (loss_R + loss_A).backward()
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
+                opt.step()
+                if coef_max_delta is not None and coef_max_delta > 0:
+                    clamp_coef_after_step(
+                        alpha,
+                        coef_before,
+                        coef_max_delta,
+                        use_alpha_tanh=variant.use_alpha_tanh,
+                        use_maxnorm=variant.use_maxnorm,
+                    )
+
+            with torch.no_grad():
+                R_eval = net(st).cpu().numpy()
+                if variant.use_alpha_tanh:
+                    trust = torch.tanh(alpha)
+                else:
+                    trust = alpha
+                if variant.use_maxnorm:
+                    abar = (trust / trust.abs().amax().clamp_min(1e-12)).cpu().numpy()
+                else:
+                    abar = trust.cpu().numpy()
+
+            rhos[s] = float(rowwise_corr(R_eval[None, :], r_star[s : s + 1])[0])
+            abars[s] = abar
+
+        return rhos, abars, init_rms_total / max(1, seeds)
+
+    lr_theta_val = 0.05 if lr_theta is None else float(lr_theta)
+    lr_alpha_val = 0.005 if lr_alpha is None else float(lr_alpha)
 
     theta_star = rng.normal(size=(seeds, d))
     theta_star /= np.linalg.norm(theta_star, axis=1, keepdims=True) + 1e-12
@@ -395,8 +686,8 @@ def run_shared_variant(
             g = theta.grad
             gn = g.norm(dim=1, keepdim=True).clamp_min(1e-12)
             g.mul_(torch.clamp(10.0 / gn, max=1.0))
-            theta.data.sub_(lr_theta * g)
-            alpha.data.sub_(lr_alpha * alpha.grad)
+            theta.data.sub_(lr_theta_val * g)
+            alpha.data.sub_(lr_alpha_val * alpha.grad)
         clamp_coef_after_step(
             alpha,
             coef_before,

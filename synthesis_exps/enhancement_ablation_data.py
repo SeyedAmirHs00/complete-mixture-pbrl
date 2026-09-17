@@ -4,6 +4,7 @@ Label: tab:enhancement-ablation
 
 Example:
   python enhancement_ablation_data.py --seeds 200 --overwrite
+  python enhancement_ablation_data.py --reward-model mlp --seeds 200 --overwrite
 """
 
 from __future__ import annotations
@@ -11,12 +12,16 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from synthetic_shared_core import DEFAULT_COEF_MAX_DELTA, SharedVariant, run_shared_variant
+from synthetic_shared_core import (
+    DEFAULT_COEF_MAX_DELTA,
+    SharedVariant,
+    run_shared_variant,
+)
 
 ABLATION_VARIANTS: Tuple[SharedVariant, ...] = (
     SharedVariant(
@@ -81,18 +86,27 @@ BETAS = (1.0, 1.0, 0.0, -1.0)
 CFG = "2R1N1A"
 
 
-def summarize(variant: SharedVariant, rho: np.ndarray, abar: np.ndarray) -> dict:
+def summarize(
+    variant: SharedVariant,
+    rho: np.ndarray,
+    abar: np.ndarray,
+    *,
+    reward_model: str = "linear",
+) -> dict:
+    signed_corr = float(rho.mean())
     return {
         "config": CFG,
         "variant": variant.name,
         "label": variant.label,
+        "reward_model": reward_model,
         "use_alpha_tanh": variant.use_alpha_tanh,
         "use_maxnorm": variant.use_maxnorm,
         "use_w": variant.use_confidence_weights,
         "detach_w": variant.detach_weights,
         "correct": float((rho > 0.5).mean()),
         # Signed (real) Pearson corr with r*; not |ρ|.
-        "mean_signed_corr": float(rho.mean()),
+        "mean_signed_corr": signed_corr,
+        "corr": signed_corr,
         "abar_R": float(abar[:, :2].mean()),
         "abar_N": float(abar[:, 2].mean()),
         "abar_A": float(abar[:, 3].mean()),
@@ -100,23 +114,37 @@ def summarize(variant: SharedVariant, rho: np.ndarray, abar: np.ndarray) -> dict
 
 
 def run_ablation_data(
-    out_dir: str,
+    out_dir: Optional[str] = None,
     *,
-    seeds: int,
-    steps: int,
-    n: int,
-    pairs: int,
-    q: float,
-    overwrite: bool,
+    seeds: int = 200,
+    steps: int = 400,
+    n: int = 500,
+    pairs: int = 256,
+    q: float = 0.0,
+    overwrite: bool = False,
     coef_max_delta: float = DEFAULT_COEF_MAX_DELTA,
+    reward_model: str = "linear",
+    optimizer: str = "sgd",
+    lr_model: Optional[float] = None,
+    lr_alpha: Optional[float] = None,
+    hidden: int = 128,
+    n_layers: int = 3,
 ) -> str:
+    if out_dir is None:
+        suffix = "_mlp" if reward_model == "mlp" else ""
+        out_dir = f"results/synthetic_enhancement_ablation{suffix}"
+
     if os.path.exists(out_dir):
         if not overwrite:
-            raise FileExistsError(out_dir)
+            raise FileExistsError(f"{out_dir} exists; pass --overwrite to replace it")
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
 
     rows: List[dict] = []
+    print(
+        f"Running enhancement ablation: reward_model={reward_model} "
+        f"optimizer={optimizer} seeds={seeds} steps={steps} -> {out_dir}"
+    )
     for idx, v in enumerate(ABLATION_VARIANTS):
         rho, abar, _ = run_shared_variant(
             BETAS,
@@ -128,8 +156,14 @@ def run_ablation_data(
             q=q,
             seed=9100 + 17 * idx,
             coef_max_delta=coef_max_delta,
+            reward_model=reward_model,
+            optimizer=optimizer,
+            lr_theta=lr_model,
+            lr_alpha=lr_alpha,
+            hidden=hidden,
+            n_layers=n_layers,
         )
-        row = summarize(v, rho, abar)
+        row = summarize(v, rho, abar, reward_model=reward_model)
         rows.append(row)
         print(
             f"[{CFG}] {v.name:10s} correct={row['correct']:.3f} "
@@ -139,20 +173,35 @@ def run_ablation_data(
 
     table = pd.DataFrame(rows)
     table.to_csv(os.path.join(out_dir, "enhancement_ablation.csv"), index=False)
-    table.to_csv(os.path.join(out_dir, "enhancement_ablation_2R1N1A.csv"), index=False)
+    table.to_csv(os.path.join(out_dir, f"enhancement_ablation_{CFG}.csv"), index=False)
     print(f"OUT ablation data: {out_dir}")
     return out_dir
 
 
 def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--out_dir", default="results/synthetic_enhancement_ablation")
+    p = argparse.ArgumentParser(description="Enhancement ablation table data generation")
+    p.add_argument("--out_dir", default=None, help="Default depends on --reward-model")
     p.add_argument("--seeds", type=int, default=200)
     p.add_argument("--steps", type=int, default=400)
     p.add_argument("--n", type=int, default=500)
     p.add_argument("--pairs", type=int, default=256)
     p.add_argument("--q", type=float, default=0.0)
     p.add_argument("--overwrite", action="store_true")
+    p.add_argument(
+        "--reward-model",
+        choices=["linear", "mlp"],
+        default="linear",
+        help="Reward model: linear (default) or mlp (PEBBLE-style neural network).",
+    )
+    p.add_argument(
+        "--optimizer",
+        choices=["sgd", "adam", "adamw", "adam_sgd"],
+        default="sgd",
+    )
+    p.add_argument("--lr-model", type=float, default=None)
+    p.add_argument("--lr-alpha", type=float, default=None)
+    p.add_argument("--hidden", type=int, default=128)
+    p.add_argument("--n-layers", type=int, default=3)
     p.add_argument(
         "--coef-max-delta",
         type=float,
@@ -170,6 +219,12 @@ def main() -> None:
         q=args.q,
         overwrite=args.overwrite,
         coef_max_delta=args.coef_max_delta,
+        reward_model=args.reward_model,
+        optimizer=args.optimizer,
+        lr_model=args.lr_model,
+        lr_alpha=args.lr_alpha,
+        hidden=args.hidden,
+        n_layers=args.n_layers,
     )
 
 
